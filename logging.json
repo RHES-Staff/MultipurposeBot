@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "console": {
+      "format": "[{asctime}] [{levelname:<8}] {name}: {message}",
+      "datefmt": "%Y-%m-%d %H:%M:%S",
+      "style": "{"
+    },
+    "json": {
+      "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+      "format": "%(asctime)s %(levelname)s %(name)s %(message)s"
+    }
+  },
+  "handlers": {
+    "console_info": {
+      "class": "logging.StreamHandler",
+      "level": "INFO",
+      "formatter": "console"
+    },
+    "console_error": {
+      "class": "logging.StreamHandler",
+      "level": "ERROR",
+      "formatter": "console"
+    },
+    "discord_file": {
+      "class": "logging.handlers.RotatingFileHandler",
+      "level": "INFO",
+      "formatter": "json",
+      "filename": "logs/discord.log",
+      "maxBytes": 33554432,
+      "backupCount": 5,
+      "encoding": "utf-8"
+    },
+    "app_file": {
+      "class": "logging.handlers.RotatingFileHandler",
+      "level": "DEBUG",
+      "formatter": "json",
+      "filename": "logs/app.log",
+      "maxBytes": 33554432,
+      "backupCount": 5,
+      "encoding": "utf-8"
+    }
+  },
+  "loggers": {
+    "discord": {
+      "handlers": ["discord_file", "console_error"],
+      "level": "INFO",
+      "propagate": false
+    },
+    "App": {
+      "handlers": ["app_file", "console_info"],
+      "level": "DEBUG",
+      "propagate": false
+    }
+  },
+  "root": {
+    "level": "WARNING",
+    "handlers": ["console_error"]
+  }
+}
