@@ -15,13 +15,14 @@ class Database:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    async def connect(self):
+    async def connect(self, path=_path):
         if getattr(self, "_initialized", False):
             return
         
         try:
             log.debug(f"Connecting to DB {self._path}")
-            self.conn = await aiosqlite.connect(self._path)
+            self.conn = await aiosqlite.connect(path)
+            self.conn.row_factory = aiosqlite.Row
         except Exception:
             raise Exception("Cannot connect to the database.")
 
@@ -32,7 +33,7 @@ class Database:
         await self._migrate()
 
         self._initialized = True
-        log.debug(f"Connected to DB {self._path}")
+        log.info(f"Connected to DB {self._path}")
 
     async def _migrate(self):
         cur = await self.conn.execute("PRAGMA user_version")

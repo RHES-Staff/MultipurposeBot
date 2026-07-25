@@ -32,15 +32,16 @@ class MultipurposeBot(commands.Bot):
             config = json.load(f)
         logging.config.dictConfig(config)
 
-        # load all discord handlers automatically
         self.serverDepartments = await database.discordServers.getAllServersOfDepartments()
-        cogs_dir = os.path.join(os.path.dirname(__file__), "discord")
+        self.servers = await database.discordServers.getAllRegisteredServers()
+
+        # load all discord handlers automatically
+        cogs_dir = os.path.join(os.path.dirname(__file__), "features")
         for filename in os.listdir(cogs_dir):
             if not filename.endswith(".py"):
                 continue
-            await self.load_extension(f"discord.{filename[:-3]}")
+            await self.load_extension(f"features.{filename[:-3]}")
             log.debug(f"Loaded Feature{filename}")
-        
         
         for server in await database.discordServers.getAllRegisteredServers():
             await self.tree.sync(guild=server)

@@ -37,7 +37,7 @@ class System(commands.Cog):
         roundtrip = (end - start) * 1000
 
         await interaction.edit_original_response(
-            content=f"Pong!\n\nRoundtrip: `{roundtrip:.2f}ms`\n Websocket: `{interaction.client.latency*1000:.2f}ms`"
+            content=f"Pong!\n\nRoundtrip: `{roundtrip:.2f}ms`\nWebsocket: `{interaction.client.latency*1000:.2f}ms`"
         )
 
 async def setup(bot):

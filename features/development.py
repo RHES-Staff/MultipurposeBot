@@ -16,11 +16,13 @@ class Development(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         for guild in self.bot.serverDepartments["qa"]["servers"]:
-            self.bot.tree.add_command(self.qaCommands, guild=guild)
-
-    @app_commands.command(name="qa", description="QA Commands")
-    async def qaCommands(self, interaction):
-        await interaction.response.send_message("QA-Specific Command", ephemeral=True)
+            pass
+            # self.bot.tree.add_command(self.qaCommands, guild=guild)
+        
+        # TODO: put this shit in config
+        self.bugReportChannels = ["0"]
+        self.adminRoleIds = ["0"]
+        self.minimumReportQuota = 6
 
 async def setup(bot):
     await bot.add_cog(Development(bot))

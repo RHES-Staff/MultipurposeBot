@@ -2,3 +2,5 @@ discord.py
 dotenv
 python-json-logger
 aiosqlite
+pytest
+dpytest

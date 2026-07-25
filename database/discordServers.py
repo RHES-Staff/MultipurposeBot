@@ -5,7 +5,7 @@ import discord
 
 from . import Database
 
-log = logging.getLogger(f"ITskolar.{__name__}")
+log = logging.getLogger(f"App.{__name__}")
 
 
 async def getAllRegisteredServers():
@@ -29,7 +29,7 @@ async def getAllServersOfDepartments():
             ON staff_department.key = staff_server_departments.department_key
         LEFT JOIN assets_discord_server 
             ON assets_discord_server.id = staff_server_departments.server_id
-    GROUP BY key, full_name, configuration;
+    GROUP BY key, name, configuration;
     """
 
     db = Database()

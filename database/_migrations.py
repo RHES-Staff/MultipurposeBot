@@ -4,8 +4,8 @@ MIGRATIONS = ["""
 CREATE TABLE staff_staff (
     staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    title TEXT NOT NULL,
-    timezone TEXT NOT NULL,
+    title TEXT,
+    timezone TEXT,
     schedule TEXT NOT NULL DEFAULT '{}',
     is_active BOOLEAN NOT NULL DEFAULT 1,
     is_blacklisted BOOLEAN NOT NULL DEFAULT 0,
@@ -15,7 +15,7 @@ CREATE TABLE staff_staff (
 
 CREATE TABLE staff_department (
     key TEXT PRIMARY KEY,
-    full_name TEXT NOT NULL,
+    name TEXT NOT NULL,
     head INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -38,21 +38,12 @@ CREATE TABLE staff_staff_departments (
 
 CREATE TABLE staff_accounts (
     account_id INTEGER PRIMARY KEY,
+    staff_id INTEGER NOT NULL,
     username TEXT NOT NULL UNIQUE,
     platform TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE staff_staff_accounts (
-    account_id INTEGER NOT NULL,
-    staff_id INTEGER NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (account_id, staff_id),
-    FOREIGN KEY (account_id) REFERENCES staff_accounts (account_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
         ON UPDATE CASCADE ON DELETE CASCADE
 );
@@ -165,6 +156,20 @@ CREATE INDEX author_decision_rates ON department_tester_reports (author, decisio
 CREATE INDEX fixer_statistics ON department_tester_reports (fixer, fixed_at);
 CREATE INDEX time_to_fix ON department_tester_reports (created_at, fixed_at);
 CREATE INDEX asignee_tat ON department_tester_reports (asignee, assigned_at, fixed_at);
+
+/* ===================== views ======================= */
+
+/* ================= prebuilt data =================== */
+INSERT INTO staff_staff (staff_id, name) 
+    VALUES (0, 'isaac');
+
+INSERT INTO staff_department (key, name, head) VALUES
+    ('bod', 'Board of Directors', 0),
+    ('dept', 'Department Heads', 0),
+    ('sys', 'Systems Department', 0),
+    ('dev', 'Development Department', 0),
+    ('qa', 'Testing Team', 0),
+    ('inst', 'Instruction Department', 0);
     """
 
 ]
