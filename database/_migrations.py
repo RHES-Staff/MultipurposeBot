@@ -158,6 +158,13 @@ CREATE INDEX time_to_fix ON department_tester_reports (created_at, fixed_at);
 CREATE INDEX asignee_tat ON department_tester_reports (asignee, assigned_at, fixed_at);
 
 /* ===================== views ======================= */
+CREATE VIEW vw_staff_full AS
+    SELECT 
+        s.*,
+        a.*
+    FROM staff_staff s
+    JOIN staff_accounts a
+        ON a.staff_id = s.staff_id;
 
 /* ================= prebuilt data =================== */
 INSERT INTO staff_staff (staff_id, name) 

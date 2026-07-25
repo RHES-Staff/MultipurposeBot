@@ -1,5 +1,4 @@
-""" Development Cog - For use of the Development Department and Testing Team 
-"""
+"""Development Cog - For use of the Development Department and Testing Team"""
 
 import logging
 
@@ -8,18 +7,17 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database import Database
-
+from database import Database, staff
 
 log = logging.getLogger(f"App.{__name__}")
 load_dotenv()
 
+
 async def createBaseStaffFromAccount(name, user):
     staffInsertQuery = """
-        INSERT INTO
-            staff_staff (name)
-        VALUES
-            (?) RETURNING staff_id;
+        INSERT INTO staff_staff (name)
+            VALUES (?)
+        RETURNING staff_id;
     """
     accountInsertQuery = """
         INSERT INTO staff_accounts (account_id, username, platform, staff_id)
@@ -29,37 +27,43 @@ async def createBaseStaffFromAccount(name, user):
     staffId = (await db.fetchone(staffInsertQuery, (name,)))["staff_id"]
     await db.execute(accountInsertQuery, (user.id, user.name, staffId))
     return staffId
-async def createDepartment(name, key, head):
+
+
+async def registerStaffOnDepartment(staffId, key):
+    departmentInsertQuery = """
+        INSERT INTO staff_staff_departments (staff_id, department_key)
+            VALUES (?, ?)
+    """
+    db = Database()
+    await db.execute(departmentInsertQuery, (staffId, key))
+
+
+async def setDepartmentHead(key, head):
     # head is expecting a discord user
     query = """
-        INSERT INTO staff_department (name, key, head)
-            VALUES (?, ?, ?);
+        UPDATE staff_department
+        SET head = ? WHERE key = ?
+        RETURNING *;
     """
-    
+    db = Database()
+    return await db.fetchone(
+        query, ((await staff.getStaffFromDiscordAccount(head))["staff_id"], key)
+    )
+    # TODO: throw an exception if head is not a member of their org
+
 
 async def getDepartmentHandles(user):
     supervisorQuery = """
-        WITH
-            staff AS (
-                SELECT
-                    staff_staff.staff_id as id
-                FROM
-                    staff_accounts
-                    LEFT JOIN staff_staff_accounts ON staff_staff_accounts.account_id = staff_accounts.account_id
-                    LEFT JOIN staff_staff ON staff_staff.staff_id = staff_staff_accounts.staff_id
-                WHERE
-                    staff_accounts.account_id = ?
-            )
         SELECT
-            *
+            dept.key, dept.name
         FROM
-            staff_department
-            LEFT JOIN staff ON staff.id = staff_department.head
-        WHERE staff_department.head = staff.id
+            staff_department dept
+            LEFT JOIN staff_accounts acct ON acct.staff_id = dept.head
+        WHERE acct.account_id = ?
     """
     db = Database()
-    staffId = db.fetchall(supervisorQuery, (user.id,))
-    return staffId
+    return await db.fetchall(supervisorQuery, (user.id,))
+
 
 class DepartmentHeads(commands.Cog):
     def __init__(self, bot):
@@ -71,10 +75,10 @@ class DepartmentHeads(commands.Cog):
 
     @staff.command(name="register", description="Register a Staff")
     async def staffRegister(self, interaction, user: discord.User, preferredName: str):
-        supervisor = interaction.user
-        # TODO: check if the supervisor is really a supervisor
-
-        
+        supervisorDepts = getDepartmentHandles(interaction.user)
+        # TODO: if none, throw an error, if > 2, ask user what department
+        newStaffId = await createBaseStaffFromAccount(preferredName, user)
+        await registerStaffOnDepartment(newStaffId, supervisorDepts[0]["key"])
 
 
 async def setup(bot):

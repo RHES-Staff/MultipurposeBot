@@ -84,10 +84,14 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
         self.dev_tester_sup = make_mock_member(
             name="bonnybonnybon",
             guild=self.devServer,
-            roles=[self.devServer.default_role, self.dev_tester_sup_role],
+            roles=[
+                self.devServer.default_role,
+                self.dev_tester_sup_role,
+                self.dev_tester_role,
+            ],
         )
         self.dev_tester = make_mock_member(
-            name="visadow",
+            name="sleppn",
             guild=self.devServer,
             roles=[self.devServer.default_role, self.dev_tester_role],
         )
@@ -127,6 +131,17 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.db.close()
 
+    async def test_core_queries(self):
+        staffId = await departmentHeads.createBaseStaffFromAccount(
+            "bonny", self.dev_tester_sup
+        )
+        staff = await database.staff.getStaffFromDiscordAccount(self.dev_tester_sup)
+        self.assertEqual(staffId, staff["staff_id"])
+
+        nonexistentStaff = await database.staff.getStaffFromDiscordAccount(
+            self.inst_head_instructor
+        )
+        self.assertIsNone(nonexistentStaff)
 
     async def test_dept_heads_queries(self):
         staffId = await departmentHeads.createBaseStaffFromAccount(
@@ -137,10 +152,49 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
             FROM staff_staff s
             JOIN staff_accounts a ON a.staff_id = s.staff_id
         """)
-        self.assertEqual(db['staff_id'], staffId)
-        self.assertEqual(db['name'], 'bonny')
-        self.assertEqual(db['account_id'], self.dev_tester_sup.id)
-        self.assertEqual(db['username'], self.dev_tester_sup.name)
-        self.assertEqual(db['platform'], 'discord')
-        log.debug(f"junction: {dict(db)}")
+        log.debug(f"departmentHeads.createBaseStaffFromAccount : {dict(db)}")
+        self.assertEqual(db["staff_id"], staffId)
+        self.assertEqual(db["name"], "bonny")
+        self.assertEqual(db["account_id"], self.dev_tester_sup.id)
+        self.assertEqual(db["username"], self.dev_tester_sup.name)
+        self.assertEqual(db["platform"], "discord")
 
+        department = await departmentHeads.setDepartmentHead("qa", self.dev_tester_sup)
+        self.assertEqual(
+            department["head"],
+            (await database.staff.getStaffFromDiscordAccount(self.dev_tester_sup))[
+                "staff_id"
+            ],
+        )
+        log.debug(f"departmentHeads.setDepartmentHead : {dict(department)}")
+        with self.assertRaises(TypeError):
+            await departmentHeads.setDepartmentHead(
+                "inst", self.inst_head_instructor
+            )  # not registered as staff
+
+        testingHandles = await departmentHeads.getDepartmentHandles(self.dev_tester_sup)
+        log.debug(f"departmentHeads.getDepartmentHandles : {dict(testingHandles)}")
+        self.assertEqual(len(testingHandles), 1)
+        nonexistentHandles = await departmentHeads.getDepartmentHandles(
+            self.inst_head_instructor
+        )
+        log.debug(f"departmentHeads.getDepartmentHandles : {dict(nonexistentHandles)}")
+        self.assertEqual(len(nonexistentHandles), 0)
+
+        newStaffId = await departmentHeads.createBaseStaffFromAccount(
+            "sleppn", self.dev_tester
+        )
+        await departmentHeads.registerStaffOnDepartment(
+            newStaffId, testingHandles[0]["key"]
+        )
+        db = await self.db.fetchone(
+            """
+            SELECT d.staff_id, d.department_key FROM staff_staff_departments d
+            JOIN staff_staff s ON d.staff_id = s.staff_id
+            WHERE d.staff_id = ?
+        """,
+            (newStaffId,),
+        )
+        log.debug(f"departmentHeads.registerStaffOnDepartment : {dict(db)}")
+        self.assertEqual(db["staff_id"], newStaffId)
+        self.assertEqual(db["department_key"], "qa")
