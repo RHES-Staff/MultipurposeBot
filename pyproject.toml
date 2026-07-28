@@ -1,0 +1,5 @@
+[tool.ruff.lint]
+extend-select = ["N", "ANN", "D"]
+ignore = ["D107"]
+
+[tool.ty.rules]

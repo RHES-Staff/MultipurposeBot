@@ -1,4 +1,5 @@
-MIGRATIONS = ["""
+MIGRATIONS: list[str] = [
+    """
 /* ===================== staff ===================== */
 
 CREATE TABLE staff_staff (
@@ -7,6 +8,7 @@ CREATE TABLE staff_staff (
     title TEXT,
     timezone TEXT,
     schedule TEXT NOT NULL DEFAULT '{}',
+    discord_id INT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     is_blacklisted BOOLEAN NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -17,104 +19,35 @@ CREATE TABLE staff_department (
     key TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     head INTEGER NOT NULL,
+    configuration TEXT NOT NULL DEFAULT '{}',
+    servers TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (head) REFERENCES staff_staff (staff_id)
         ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
-CREATE TABLE staff_staff_departments (
+CREATE TABLE staff_staff_department (
     staff_id INTEGER NOT NULL,
     department_key TEXT NOT NULL,
-    on_trial BOOLEAN NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (staff_id, department_key),
-    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (department_key) REFERENCES staff_department (key)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
-
-CREATE TABLE staff_accounts (
-    account_id INTEGER PRIMARY KEY,
-    staff_id INTEGER NOT NULL,
-    username TEXT NOT NULL UNIQUE,
-    platform TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
-
-CREATE TABLE staff_server_departments (
-    server_id INTEGER NOT NULL,
-    department_key TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (server_id, department_key),
-    FOREIGN KEY (server_id) REFERENCES assets_discord_server (id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (department_key) REFERENCES staff_department (key)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
-
-/* ===================== assets ===================== */
-
-CREATE TABLE assets_discord_server (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    configuration TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE assets_server_roles (
-    id INTEGER PRIMARY KEY,
-    server_id INTEGER NOT NULL,
-    department_ownership TEXT NOT NULL,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (server_id) REFERENCES assets_discord_server (id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (department_ownership) REFERENCES staff_department (key)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
-
-CREATE TABLE assets_roblox_discord_roles (
-    roblox_id INTEGER NOT NULL,
-    discord_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (roblox_id, discord_id),
-    FOREIGN KEY (roblox_id) REFERENCES department_roblox_roles (id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (discord_id) REFERENCES assets_server_roles (id)
-        ON UPDATE CASCADE ON DELETE CASCADE
+    created_at INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 /* ===================== department ===================== */
-
-CREATE TABLE department_roblox_roles (
-    id INTEGER PRIMARY KEY,
-    department_ownership TEXT NOT NULL,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (department_ownership) REFERENCES staff_department (key)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
 
 CREATE TABLE department_tester_reports (
     id INTEGER PRIMARY KEY,
     author INTEGER NOT NULL,
     content TEXT,
     decision INTEGER NOT NULL DEFAULT 0,
+    severity INTEGER,
+    triaged_by INTEGER,
+    triaged_at INTEGER,
     asignee INTEGER,
-    assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    fixer INTEGER NOT NULL,
+    assigned_at TEXT,
+    fixer INTEGER,
     fixed_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -150,33 +83,56 @@ CREATE TABLE department_tester_misc_performance (
 
 /* ===================== indexes ===================== */
 
-CREATE INDEX creation_timestamp_index ON department_tester_reports (created_at ASC);
-CREATE INDEX author_stats_index ON department_tester_reports (author, created_at);
-CREATE INDEX author_decision_rates ON department_tester_reports (author, decision, created_at);
-CREATE INDEX fixer_statistics ON department_tester_reports (fixer, fixed_at);
-CREATE INDEX time_to_fix ON department_tester_reports (created_at, fixed_at);
-CREATE INDEX asignee_tat ON department_tester_reports (asignee, assigned_at, fixed_at);
-
 /* ===================== views ======================= */
-CREATE VIEW vw_staff_full AS
-    SELECT 
-        s.*,
-        a.*
-    FROM staff_staff s
-    JOIN staff_accounts a
-        ON a.staff_id = s.staff_id;
 
-/* ================= prebuilt data =================== */
-INSERT INTO staff_staff (staff_id, name) 
-    VALUES (0, 'isaac');
+/* ===================== triggers ===================== */
+CREATE TRIGGER update_staff_staff_edited_at
+AFTER UPDATE ON staff_staff FOR EACH ROW
+BEGIN
+  UPDATE staff_staff SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id;
+END;
+
+CREATE TRIGGER update_staff_department_edited_at 
+AFTER UPDATE ON staff_department
+FOR EACH ROW
+BEGIN
+  UPDATE staff_department SET edited_at = CURRENT_TIMESTAMP WHERE key = OLD.key;
+END;
+
+CREATE TRIGGER update_department_tester_reports_edited_at 
+AFTER UPDATE ON department_tester_reports
+FOR EACH ROW
+BEGIN
+  UPDATE department_tester_reports SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
+
+CREATE TRIGGER update_department_instructor_instructions_edited_at 
+AFTER UPDATE ON department_instructor_instructions
+FOR EACH ROW
+BEGIN
+  UPDATE department_instructor_instructions SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
+
+CREATE TRIGGER update_department_tester_misc_performance_edited_at
+AFTER UPDATE ON department_tester_misc_performance
+FOR EACH ROW
+BEGIN
+  UPDATE department_tester_misc_performance SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
+
+/* =====================prebuilt data ================ */
+INSERT INTO staff_staff (staff_id, name, discord_id) 
+    VALUES (0, 'isaac', 1244953844451119157);
 
 INSERT INTO staff_department (key, name, head) VALUES
     ('bod', 'Board of Directors', 0),
     ('dept', 'Department Heads', 0),
-    ('sys', 'Systems Department', 0),
     ('dev', 'Development Department', 0),
+    ('ad', 'Administration Department', 0),
+    ('cr', 'Community Relations', 0),
+    ('sys', 'Systems Department', 0),
     ('qa', 'Testing Team', 0),
+    ('cont', 'Contributors', 0),
     ('inst', 'Instruction Department', 0);
     """
-
 ]

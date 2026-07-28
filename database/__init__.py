@@ -1,4 +1,2 @@
-import logging
-import aiosqlite
-from .core import Database
-from . import discordServers, staff
+from . import servers, staff  # noqa: D104, F401
+from .core import Database  # noqa: F401
