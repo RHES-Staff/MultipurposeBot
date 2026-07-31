@@ -4,6 +4,8 @@ from typing import Any
 
 import discord
 
+from main import MultipurposeBot
+
 from .core import Database
 
 log = logging.getLogger(f"App.{__name__}")
@@ -13,8 +15,13 @@ async def get_all_departments() -> dict[str, Any]:
     """Get all department details stored inside."""
     department_query = "SELECT key, name, configuration, servers FROM staff_department;"
     db = Database()
+    bot = MultipurposeBot()
     results = await db.fetchall(department_query)
     departments: dict[str, Any] = {}
     for department in results:
-        departments[department["key"]] = {"name": department["name"], "configuration": json.loads(department["configuration"]),  "servers": json.loads(department["servers"])}
+        departments[department["key"]] = {
+            "name": department["name"],
+            "configuration": json.loads(department["configuration"]),
+            "servers": [discord.Object(id=guild_id) for guild_id in json.loads(department["servers"])],
+        }
     return departments

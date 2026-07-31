@@ -22,13 +22,16 @@ class Database:
         if cls.instance is None:
             cls.instance = super().__new__(cls)
         return cls.instance
+        
+    def __init__(self,  path: str = _path) -> None:
+        if getattr(self, "_initialized", False):
+            return
 
     async def connect(self, path: str = _path) -> None:
         """Connect to the database."""
         if getattr(self, "_initialized", False):
             return
 
-        log.debug(f"Connecting to DB {path}")
         self.conn = await aiosqlite.connect(path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.execute("PRAGMA integrity_check")
@@ -40,7 +43,7 @@ class Database:
         await self._migrate()
 
         self._initialized = True
-        log.info(f"Connected to DB {self._path}")
+        log.info(f"Connected to DB {path}")
 
     async def _migrate(self) -> None:
         cur: aiosqlite.Cursor = await self.conn.execute("PRAGMA user_version")
@@ -64,12 +67,12 @@ class Database:
         await self.conn.commit()
         return cur
 
-    async def fetchone(self, sql: str, params: tuple[str, ...] = ()) -> aiosqlite.Row | None:
+    async def fetchone(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> aiosqlite.Row | None:
         """Execute the given query and get 1 result back."""
         cur = await self.conn.execute(sql, params)
         return await cur.fetchone()
 
-    async def fetchall(self, sql: str, params: tuple[str, ...] = ()) -> Iterable[aiosqlite.Row]:
+    async def fetchall(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> Iterable[aiosqlite.Row]:
         """Execute the given query and get all results back."""
         cur = await self.conn.execute(sql, params)
         return await cur.fetchall()

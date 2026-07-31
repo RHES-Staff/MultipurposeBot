@@ -2,4 +2,8 @@
 extend-select = ["N", "ANN", "D"]
 ignore = ["D107"]
 
-[tool.ty.rules]
+[tool.pytest.ini_options]
+asyncio_debug = true
+asyncio_mode = "auto"
+log_cli = true
+log_cli_level = "INFO"

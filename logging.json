@@ -4,11 +4,12 @@
   "formatters": {
     "console": {
       "format": "[{asctime}] [{levelname:<8}] {name}: {message}",
+      "()": "main.ConsoleFormatter",
       "datefmt": "%Y-%m-%d %H:%M:%S",
       "style": "{"
     },
     "json": {
-      "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+      "()": "pythonjsonlogger.json.JsonFormatter",
       "format": "%(asctime)s %(levelname)s %(name)s %(message)s"
     }
   },
