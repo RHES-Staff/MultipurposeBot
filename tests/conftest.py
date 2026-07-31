@@ -46,11 +46,11 @@ def fake_content_type_getter(self: discord.Attachment) -> str | None:
     }.get(ext)
 
 
-def fake_content_type_setter(self, value):
+def fake_content_type_setter(self, value) -> None: # noqa
     pass  # ignore whatever discord.py/dpytest tries to assign
 
-async def wait_for_reaction(message, emoji, timeout=5.0):
-    async def _poll():
+async def wait_for_reaction(message, emoji, timeout=5.0): # noqa
+    async def _poll(): # noqa
         while not any(r.emoji == emoji for r in message.reactions):
             await asyncio.sleep(0.1)
 

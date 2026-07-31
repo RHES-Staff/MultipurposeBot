@@ -1,9 +1,9 @@
 """Development Cog - For use of the Development Department and Testing Team."""
 
-import asyncio
 import logging
-from typing import Any, Self, cast
+from typing import Any, Self, cast, overload
 
+import aiosqlite
 import discord
 import discord.utils
 from discord.ext import commands
@@ -47,7 +47,19 @@ async def register_report(message: discord.Message) -> None:
     )
 
 
+async def get_bug(message: discord.Message) -> aiosqlite.Row | None:
+    """Get a registered bug from the database."""
+    bug_lookup_query = "SELECT * FROM department_tester_reports r WHERE id = :id"
+    db = database.Database()
+    return await db.fetchone(bug_lookup_query, {"id": message.id})
+
+
+@overload
+async def get_tester_stats() -> list[aiosqlite.Row]: ...
+@overload
+async def get_tester_stats(member: discord.Member) -> aiosqlite.Row | None: ...
 async def get_tester_stats(member: discord.Member | None = None):
+    """Get a testers statistics from the database."""
     stat_lookup_query = f"""
     SELECT
         author,
@@ -67,6 +79,30 @@ async def get_tester_stats(member: discord.Member | None = None):
         return await db.fetchall(stat_lookup_query, params)
 
 
+@overload
+async def get_developer_stats() -> list[aiosqlite.Row]: ...
+@overload
+async def get_developer_stats(member: discord.Member) -> aiosqlite.Row | None: ...
+async def get_developer_stats(member: discord.Member | None = None):
+    """Get a developers statistics from the database."""
+    stat_lookup_query = f"""
+    SELECT
+        fixer,
+        SUM(CASE WHEN decision = 1 THEN 1 ELSE 0 END) AS accepted,
+        SUM(CASE WHEN decision = -1 THEN 1 ELSE 0 END) AS rejected
+    FROM department_tester_reports r
+    {"JOIN staff_staff s ON s.staff_id = r.fixer WHERE s.discord_id = :id" if member else ""}
+    GROUP BY r.fixer;
+    """
+    params: dict[str, Any] = {}
+    db = database.Database()
+    if member:
+        params["id"] = member.id
+        return await db.fetchone(stat_lookup_query, params)
+    else:
+        return await db.fetchall(stat_lookup_query, params)
+
+
 async def decide_report(decision: discord.PartialEmoji, decider: discord.Member, message: discord.Message) -> None:
     """Decide if a Bug Report is Accepted or not."""
     assert Development.instance, "This function can only be called with Development Cog loaded."
@@ -76,9 +112,16 @@ async def decide_report(decision: discord.PartialEmoji, decider: discord.Member,
     if message.channel not in Development.instance.bug_report_channels:
         log.debug("reaction not made in a bug report channel.", extra={"channel": message.channel})
         return
-    if decider.roles not in Development.instance.admin_role_ids:
-        log.debug("reaction not made by an admin.", extra={"user": decider, "roles": decider.roles})
+    if not await get_bug(message):
+        log.debug("message is not registered as a bug", extra={"message_object": message})
         return
+    if not any(role in Development.instance.admin_role_ids for role in decider.roles):
+        log.debug("reaction not made by an admin.", extra={"user": decider, "roles": decider.roles})
+        await message.remove_reaction(decision, decider)
+        return
+    if not await database.staff.get_staff_by_discord_user(decider):
+        log.warning("Member is not registered.", extra={"member": decider})
+        await database.staff.register_staff(decider)
 
     is_accepted = 0
     if decision.name == "✅":
@@ -86,7 +129,7 @@ async def decide_report(decision: discord.PartialEmoji, decider: discord.Member,
     elif decision.name == "❌":
         is_accepted = -1
     else:
-        log.debug("uhhhh", extra={"reaction": decision})
+        log.debug("reaction is not a valid decision", extra={"user": decider, "reaction": decision})
         return
 
     query = """
@@ -96,8 +139,9 @@ async def decide_report(decision: discord.PartialEmoji, decider: discord.Member,
     """
     db = database.Database()
     await db.execute(query, {"decision": is_accepted, "fixer_account_id": decider.id, "bug_id": message.id})
+    await message.delete()  # TODO: wait for 3-5 seconds before deleting the bug report
 
-    log.info("Bug Decided.", extra={"author": message.author.display_name, "decider": decider.display_name, "decision": is_accepted})
+    log.info("Bug Decided.", extra={"author": message.author.display_name, "decider": decider.display_name, "id": message.id, "decision": is_accepted})
 
 
 class Development(commands.Cog):
@@ -189,7 +233,6 @@ class Development(commands.Cog):
             log.debug("Reaction is sent on a deliberately ignored channel.", extra={"channel": channel})
             return
         message: discord.Message | None = await self.bot.cached_fetch_message(channel, payload.message_id)
-        log.debug('aaa', extra={"payload": payload, "channel": channel, "bug_message": message})
         await decide_report(payload.emoji, payload.member, message)
 
 
