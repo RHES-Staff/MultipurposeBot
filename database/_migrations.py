@@ -7,10 +7,10 @@ CREATE TABLE staff_staff (
     name TEXT NOT NULL,
     title TEXT,
     timezone TEXT,
-    schedule TEXT NOT NULL DEFAULT '{}',
-    discord_id INT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT 1,
-    is_blacklisted BOOLEAN NOT NULL DEFAULT 0,
+    schedule BLOB NOT NULL DEFAULT (jsonb('{}')),
+    discord_id INT NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    is_blacklisted BOOLEAN NOT NULL DEFAULT 0 CHECK (is_blacklisted IN (0,1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -19,8 +19,8 @@ CREATE TABLE staff_department (
     key TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     head INTEGER NOT NULL,
-    configuration TEXT NOT NULL DEFAULT '{}',
-    servers TEXT NOT NULL DEFAULT '[]',
+    configuration BLOB NOT NULL DEFAULT (jsonb('{}')),
+    servers BLOB NOT NULL DEFAULT (jsonb('[]')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (head) REFERENCES staff_staff (staff_id)
@@ -30,9 +30,10 @@ CREATE TABLE staff_department (
 CREATE TABLE staff_staff_department (
     staff_id INTEGER NOT NULL,
     department_key TEXT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP
+    is_active BOOLEAN NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (staff_id, department_key)
 );
 
 /* ===================== department ===================== */
@@ -41,10 +42,10 @@ CREATE TABLE department_tester_reports (
     id INTEGER PRIMARY KEY,
     author INTEGER NOT NULL,
     content TEXT,
-    decision INTEGER NOT NULL DEFAULT 0,
-    severity INTEGER,
-    triaged_by INTEGER,
-    triaged_at INTEGER,
+    decision INTEGER NOT NULL DEFAULT 0 CHECK (decision IN (-1,0,1)),
+    severity INTEGER CHECK (severity IS NULL OR severity BETWEEN 0 AND 4),
+    triager INTEGER,
+    triaged_at TEXT,
     asignee INTEGER,
     assigned_at TEXT,
     fixer INTEGER,
@@ -55,12 +56,17 @@ CREATE TABLE department_tester_reports (
         ON UPDATE CASCADE ON DELETE RESTRICT,
     FOREIGN KEY (fixer) REFERENCES staff_staff (staff_id)
         ON UPDATE CASCADE ON DELETE RESTRICT
+    FOREIGN KEY (triager) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (asignee) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 CREATE TABLE department_instructor_instructions (
     id INTEGER PRIMARY KEY,
     claimer INTEGER NOT NULL,
-    verifier INTEGER NOT NULL,
+    is_finished INTEGER CHECK (is_finished IN (0,1)),
+    verifier INTEGER,
     closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -87,35 +93,43 @@ CREATE TABLE department_tester_misc_performance (
 
 /* ===================== triggers ===================== */
 CREATE TRIGGER update_staff_staff_edited_at
-AFTER UPDATE ON staff_staff FOR EACH ROW
+AFTER UPDATE ON staff_staff
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
   UPDATE staff_staff SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id;
 END;
 
-CREATE TRIGGER update_staff_department_edited_at 
+CREATE TRIGGER update_staff_department_edited_at
 AFTER UPDATE ON staff_department
-FOR EACH ROW
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
   UPDATE staff_department SET edited_at = CURRENT_TIMESTAMP WHERE key = OLD.key;
 END;
 
-CREATE TRIGGER update_department_tester_reports_edited_at 
+CREATE TRIGGER update_staff_staff_department_edited_at
+AFTER UPDATE ON staff_staff_department
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
+BEGIN
+  UPDATE staff_staff_department SET edited_at = CURRENT_TIMESTAMP WHERE key = OLD.key;
+END;
+
+CREATE TRIGGER update_department_tester_reports_edited_at
 AFTER UPDATE ON department_tester_reports
-FOR EACH ROW
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
   UPDATE department_tester_reports SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
 END;
 
-CREATE TRIGGER update_department_instructor_instructions_edited_at 
+CREATE TRIGGER update_department_instructor_instructions_edited_at
 AFTER UPDATE ON department_instructor_instructions
-FOR EACH ROW
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
   UPDATE department_instructor_instructions SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
 END;
 
 CREATE TRIGGER update_department_tester_misc_performance_edited_at
 AFTER UPDATE ON department_tester_misc_performance
-FOR EACH ROW
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
   UPDATE department_tester_misc_performance SET edited_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
 END;

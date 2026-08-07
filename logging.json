@@ -14,9 +14,14 @@
     }
   },
   "handlers": {
-    "console_info": {
+    "console_debug": {
       "class": "logging.StreamHandler",
       "level": "DEBUG",
+      "formatter": "console"
+    },
+    "console_info": {
+      "class": "logging.StreamHandler",
+      "level": "INFO",
       "formatter": "console"
     },
     "console_error": {
@@ -51,11 +56,6 @@
     },
     "App": {
       "handlers": ["app_file", "console_info"],
-      "level": "DEBUG",
-      "propagate": false
-    },
-    "test": {
-      "handlers": ["console_info"],
       "level": "DEBUG",
       "propagate": false
     }

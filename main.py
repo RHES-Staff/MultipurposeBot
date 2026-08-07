@@ -19,7 +19,9 @@ load_dotenv()
 
 TOKEN: str = os.getenv("TOKEN") or ""
 
-STANDARD_FIELDS = set(logging.LogRecord('', 0, '', 0, '', (), None).__dict__) | {'message', 'asctime'}
+STANDARD_FIELDS = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
+
+
 class ConsoleFormatter(logging.Formatter):
     def format(self, record):
         base = super().format(record)
@@ -27,6 +29,7 @@ class ConsoleFormatter(logging.Formatter):
         if extras:
             base += " " + str(extras)
         return base
+
 
 class MultipurposeBot(commands.Bot):
     """Multipurpose Bot."""
@@ -82,12 +85,13 @@ class MultipurposeBot(commands.Bot):
     async def setup_hook(self, **kwargs: str) -> None:
         """Load all cogs and setup dependencies."""
         os.makedirs("logs", exist_ok=True)
-        db = database.Database()
-        await db.connect(kwargs.get("db_path", "app.db"))
 
         async with aiofiles.open("logging.json", "r", encoding="utf-8") as f:
             config: Any = json.loads(await f.read())
         logging.config.dictConfig(config)
+
+        db = database.Database()
+        await db.connect(kwargs.get("db_path", "app.db"))
 
         self.departments: dict[str, Any] = await database.servers.get_all_departments()
 
@@ -125,4 +129,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        log.warning("Keyboard Interrupt detected. Exiting...")
+        log.fatal("Keyboard Interrupt detected. Exiting...")

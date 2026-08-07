@@ -1,15 +1,18 @@
 """Systems Cog - For use of the Systems Department."""
 
+from __future__ import annotations
+
 import logging
 import time
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# from database import Database
-from main import MultipurposeBot
+if TYPE_CHECKING:
+    from main import MultipurposeBot
 
 log = logging.getLogger(f"App.{__name__}")
 load_dotenv()

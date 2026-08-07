@@ -2,8 +2,13 @@
 extend-select = ["N", "ANN", "D"]
 ignore = ["D107"]
 
+[tool.ruff.lint.pydocstyle]
+# Strictly enforces Google-style docstrings (Args, Returns, Raises, etc.)
+convention = "google"
+
 [tool.pytest.ini_options]
 asyncio_debug = true
 asyncio_mode = "auto"
 log_cli = true
 log_cli_level = "INFO"
+

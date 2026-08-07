@@ -1,22 +1,21 @@
 import json
 import logging
+from collections.abc import Iterable
+from sqlite3 import Row
 from typing import Any
 
 import discord
 
-from main import MultipurposeBot
-
 from .core import Database
 
-log = logging.getLogger(f"App.{__name__}")
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 
 
 async def get_all_departments() -> dict[str, Any]:
     """Get all department details stored inside."""
-    department_query = "SELECT key, name, configuration, servers FROM staff_department;"
+    department_query = "SELECT key, name, json(configuration) AS configuration, json(servers) AS servers FROM staff_department;"
     db = Database()
-    bot = MultipurposeBot()
-    results = await db.fetchall(department_query)
+    results: Iterable[Row] = await db.fetchall(department_query)
     departments: dict[str, Any] = {}
     for department in results:
         departments[department["key"]] = {
