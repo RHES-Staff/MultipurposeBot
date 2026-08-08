@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Self, cast, overload
 
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 
 import database
 from features.views.leaderboard import SingleTesterStatEmbed
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from main import MultipurposeBot
 
 log: logging.Logger = logging.getLogger(f"App.{__name__}")
-load_dotenv()
 
 
 class Development(commands.Cog):
@@ -33,7 +32,7 @@ class Development(commands.Cog):
     admin_role_ids: list[discord.Role]
     minimum_report_quota: int
     leaderboard_channel: discord.TextChannel
-    leaderboard_message: discord.Message
+    _leaderboard_message: discord.Message
     logging_channel: discord.TextChannel
     start_of_week: int
 
@@ -44,6 +43,21 @@ class Development(commands.Cog):
         for guild in self.bot.departments["dev"]["servers"]:
             self.bot.tree.add_command(self.stats, guild=guild)
 
+    @property
+    def leaderboard_message(self) -> discord.Message:  # noqa: D102
+        return self._leaderboard_message
+
+    @leaderboard_message.setter
+    def leaderboard_message(self, message: discord.Message) -> None:
+        """Sets leaderboard_message and updates Database for it."""
+        query: str = """
+        UPDATE staff_department 
+            SET configuration = jsonb_set(configuration, '$.leaderboard_message', :id)
+        WHERE key = 'dev';
+        """
+        db = database.Database()
+        asyncio.create_task(db.execute(query, {"id": message.id}))
+        self._leaderboard_message: discord.Message = message
 
     async def cog_load(self) -> None:
         """Configure internal variables needed by the cog."""
@@ -75,8 +89,10 @@ class Development(commands.Cog):
             leaderboard_message: discord.Message | None = await self.bot.cached_fetch_message(self.leaderboard_channel, config["leaderboard_message"])
             if not leaderboard_message:
                 raise ValueError("Missing Leaderboard Message")
-        except (ValueError, discord.errors.Forbidden):
+        except (ValueError, discord.errors.Forbidden) as e:
+            log.debug("Controlled Exception occured.", extra={"error": e, "supposed_id": config["leaderboard_message"]})
             leaderboard_message: discord.Message = await leaderboard_channel.send("Leaderboard")  # TODO: replace w/ a real leaderboard
+            log.info("Sent new Leaderboard Message", extra={"new_id": leaderboard_message})
         self.leaderboard_message: discord.Message = leaderboard_message
 
         logging_channel: Any = await self.bot.cached_fetch_channel(config["logging_channel"])
@@ -90,7 +106,7 @@ class Development(commands.Cog):
     async def stats(self, interaction: discord.Interaction) -> None:
         """Command Listener for /stats."""
         log.debug("command received", extra={"command": "/stats", "interaction": interaction})
-        tester_stats: SingleTesterStatEmbed = SingleTesterStatEmbed(self, interaction.user)
+        tester_stats: SingleTesterStatEmbed = await SingleTesterStatEmbed.create(self, interaction.user)
         await interaction.response.send_message(embed=tester_stats, files=tester_stats.files)
 
     # Event Listeners
@@ -101,7 +117,10 @@ class Development(commands.Cog):
             log.debug("message from bot")
             return
         log.debug("message received.", extra={"message_obj": message})
-        if discord.Object(message.author.guild.id) in self.bot.departments["dev"]["servers"]:
+        # TODO: this should be an overall watcher, not a dev-specific function
+        if discord.Object(message.author.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(
+            message.author
+        ):
             # this means author is somehow a staff. the question is what dept?
             log.warning("Member is not registered.", extra={"id": message.author.id, "username": message.author.name})
             await database.staff.register_staff(message.author)
@@ -208,6 +227,7 @@ class Development(commands.Cog):
         start: datetime = date - timedelta(days=(dow - start_of_week) % 7)
         start = datetime(start.year, start.month, start.day, tzinfo=date.tzinfo)
         end: datetime = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        log.debug("week bounds fetched", extra={"date": date, "start": start, "end": end})
         return start, end
 
     async def get_bug(self, message: discord.Message) -> aiosqlite.Row | None:
@@ -217,11 +237,14 @@ class Development(commands.Cog):
         return await db.fetchone(bug_lookup_query, {"id": message.id})
 
     @overload
-    async def get_tester_stats(self, *, week: datetime | None = None) -> list[aiosqlite.Row]: ...
+    async def get_tester_stats(self, *, week: tuple[datetime, datetime] | None = None) -> list[aiosqlite.Row]: ...
     @overload
-    async def get_tester_stats(self, member: discord.Member | discord.User, *, week: datetime | None = None) -> aiosqlite.Row | None: ...
-    async def get_tester_stats(self, member: discord.Member | discord.User | None = None, *, week: datetime | None = None):
+    async def get_tester_stats(self, member: discord.Member | discord.User, *, week: tuple[datetime, datetime] | None = None) -> aiosqlite.Row | None: ...
+    async def get_tester_stats(self, member: discord.Member | discord.User | None = None, *, week: tuple[datetime, datetime] | None = None):
         """Get a testers statistics from the database."""
+        member_check: str = "WHERE s.discord_id = :id" if member else ""
+        week_check: str = "AND datetime(r.created_at) BETWEEN datetime(:week_start) AND datetime(:week_end)" if week else ""
+
         stat_lookup_query = f"""
         SELECT
             s.staff_id AS author,
@@ -229,14 +252,21 @@ class Development(commands.Cog):
             COALESCE(SUM(CASE WHEN r.decision = -1 THEN 1 ELSE 0 END), 0) AS rejected,
             COALESCE(SUM(CASE WHEN r.decision = 0 THEN 1 ELSE 0 END), 0) AS pending
         FROM staff_staff s
-        LEFT JOIN department_tester_reports r ON r.author = s.staff_id
-        {"WHERE s.discord_id = :id" if member else ""}
+        LEFT JOIN department_tester_reports r
+            ON r.author = s.staff_id
+            {member_check}
+        {week_check}
         GROUP BY s.staff_id;
         """
+
         params: dict[str, Any] = {}
-        db = database.Database()
         if member:
             params["id"] = member.id
+        if week:
+            params["week_start"], params["week_end"] = week[0].isoformat(), week[1].isoformat()
+        log.debug("tester stats fetched", extra={"member": member, "query": " ".join(stat_lookup_query.split()), "params": params})
+        db = database.Database()
+        if member:
             return await db.fetchone(stat_lookup_query, params)
         else:
             return await db.fetchall(stat_lookup_query, params)

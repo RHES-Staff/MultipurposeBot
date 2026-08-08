@@ -1,11 +1,11 @@
 """Testing bot functionalities."""
 
 from __future__ import annotations
-from dataclasses import dataclass
 
 import asyncio
 import logging
 from collections import Counter
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import discord
@@ -122,18 +122,22 @@ async def check_developer_points(devinstance: Development, member: discord.Membe
     assert stats["rejected"] == rejected, "Recorded Rejected bugs are not what is expected."
     return stats
 
+
 @dataclass
 class BugReport:
     """A Report Case."""
+
     content: str
     channel_key: str
     author_key: str
     attachments: list[str]
     valid: bool
 
+
 @dataclass
 class RegisteredReport:
     """A Report Case."""
+
     bot: MultipurposeBot
     dev: Development
     message: discord.Message
@@ -141,9 +145,11 @@ class RegisteredReport:
     guild_info: dict[str, Any]
     case: BugReport
 
+
 @dataclass
 class DecidedReport:
     """A Report Case."""
+
     should_decide: bool
     still_present: discord.Message | None
     decider: discord.Member
@@ -151,6 +157,7 @@ class DecidedReport:
     devinstance: Development
     emoji: str
     case: BugReport
+
 
 class TestBugReportBehavior:
     """Test for the expected Behavior of Development Cog when a bug report is posted."""
@@ -227,9 +234,14 @@ class TestBugReportBehavior:
         self,
         registered_report: tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
         request: pytest.FixtureRequest,
-    ) -> tuple[Any, ...]:
+    ) -> tuple[
+        tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+        pytest.FixtureRequest,
+        bool,
+        discord.Message,
+    ]:
         """Stage 2: react on whatever register_reports produced, assert decide_reports behavior."""
-        bot, devinstance, message, registered_request, author, guild_info = registered_report
+        bot, _, message, registered_request, _, guild_info = registered_report
         _, _, _, _, valid = cast(tuple[str, str, str, list[str], bool], registered_request.param)
         decider_key, emoji = cast(tuple[str, str], request.param)
 
@@ -246,12 +258,23 @@ class TestBugReportBehavior:
 
         still_present: discord.Message | None = await bot.cached_fetch_message(channel, message.id)
 
+        return registered_report, request, should_decide, still_present
 
-        return should_decide, still_present
-
-    async def test_decide_reports(self, decided_report: tuple[bool, discord.Message]) -> None:
+    async def test_decide_reports(
+        self,
+        decided_report: tuple[
+            tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+            pytest.FixtureRequest,
+            bool,
+            discord.Message,
+        ],
+    ) -> None:
         """Fixture performs and asserts the decide_reports pass/fail behavior."""
-        should_decide, still_present = decided_report
+        registered_report, request, should_decide, still_present = decided_report
+        _, devinstance, _, registered_request, author, guild_info = registered_report
+        _, _, _, _, valid = cast(tuple[str, str, str, list[str], bool], registered_request.param)
+        decider_key, emoji = cast(tuple[str, str], request.param)
+        decider: discord.Member = guild_info["dev"]["users"][decider_key]
         if should_decide:
             assert not still_present, "Bug Report was not deleted after a valid decision."
             if emoji == "✅":
@@ -264,4 +287,3 @@ class TestBugReportBehavior:
             assert still_present, "Bug Report was deleted despite an invalid decision."
             expected_pending: int = 1 if valid else 0
             await check_tester_points(devinstance, author, 0, 0, expected_pending)
-        assert decided_report["message"] is not None

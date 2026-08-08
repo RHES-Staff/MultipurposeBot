@@ -93,6 +93,13 @@ boundary_cases: list[tuple[datetime, int, datetime, datetime]] = [
         datetime(2028, 2, 27, 0, 0, tzinfo=timezone.utc),
         datetime(2028, 3, 4, 23, 59, 59, tzinfo=timezone.utc),
     ),
+    # testing a bug
+    (
+        datetime(2026, 8, 7, 20, 6, tzinfo=timezone.utc),
+        0,
+        datetime(2026, 8, 2, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 8, 8, 23, 59, 59, tzinfo=timezone.utc),
+    ),
 ]
 
 
@@ -113,9 +120,12 @@ def test_bugreport_leaderboard_exact_bounds(
 
 
 async def test_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
+    """Test that Leaderboard Embeds can print."""
     bot, guild_info, _ = bot_test
     dev: Development = cast(Development, bot.get_cog("Development"))
     embed: SingleTesterStatEmbed = await SingleTesterStatEmbed.create(dev, guild_info["dev"]["users"]["tester"])
     assert embed
     assert discord.utils.get(embed.fields, name="Week Stats")
+    assert discord.utils.get(embed.fields, name="Overall Stats")
     # we would just implicitly trust that the content here is accurate, get_tester_stats is the culprit if the content is inaccurat
+    # as we have learned, we fucked up.
