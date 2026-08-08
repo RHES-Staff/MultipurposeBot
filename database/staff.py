@@ -1,5 +1,5 @@
 import logging
-from sqlite3 import OperationalError, Row, IntegrityError
+from sqlite3 import IntegrityError, OperationalError, Row
 
 import aiosqlite
 import discord

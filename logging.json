@@ -4,7 +4,7 @@
   "formatters": {
     "console": {
       "format": "[{asctime}] [{levelname:<8}] {name}: {message}",
-      "()": "main.ConsoleFormatter",
+      "()": "__main__.ConsoleFormatter",
       "datefmt": "%Y-%m-%d %H:%M:%S",
       "style": "{"
     },

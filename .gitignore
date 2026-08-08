@@ -5,3 +5,5 @@ logs/
 __pycache__
 app.db*
 uv.lock
+build
+dist
