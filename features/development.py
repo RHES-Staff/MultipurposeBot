@@ -108,7 +108,7 @@ class Development(commands.Cog):
         """Command Listener for /stats."""
         log.debug("command received", extra={"command": "/stats", "interaction": interaction})
         tester_stats: SingleTesterStatEmbed = await SingleTesterStatEmbed.create(self, interaction.user)
-        await interaction.response.send_message(embed=tester_stats, files=tester_stats.files)
+        await interaction.response.send_message(embed=tester_stats, files=tester_stats.files, ephemeral=True)
 
     # Event Listeners
     @commands.Cog.listener()
@@ -176,7 +176,7 @@ class Development(commands.Cog):
             self.leaderboard_message: discord.Message = leaderboard_message
 
         tester_leaderboard: TesterStatEmbed = await TesterStatEmbed.create(self)
-        await self.leaderboard_message.edit(embed=tester_leaderboard, attachments=tester_leaderboard.files)
+        await self.leaderboard_message.edit(content="", embed=tester_leaderboard, attachments=tester_leaderboard.files)
         log.debug("Refreshed Leaderbaord successfully")
 
     # Business Logic
@@ -284,7 +284,7 @@ class Development(commands.Cog):
     async def get_tester_stats(self, member: discord.Member | discord.User, *, week: tuple[datetime, datetime] | None = None) -> aiosqlite.Row | None: ...
     async def get_tester_stats(self, member: discord.Member | discord.User | None = None, *, week: tuple[datetime, datetime] | None = None):
         """Get a testers statistics from the database."""
-        member_check: str = "WHERE s.discord_id = :id" if member else ""
+        member_check: str = "WHERE s.discord_id = :id AND d.department_key = 'qa' AND d.is_active = 1" if member else "WHERE d.department_key = 'qa' AND d.is_active = 1"
         week_check: str = "AND datetime(r.created_at) BETWEEN datetime(:week_start) AND datetime(:week_end)" if week else ""
         id_column: str = "" if member else "s.discord_id AS discord_id, s.name AS name,"
 
@@ -295,6 +295,8 @@ class Development(commands.Cog):
             COALESCE(SUM(CASE WHEN r.decision = -1 THEN 1 ELSE 0 END), 0) AS rejected,
             COALESCE(SUM(CASE WHEN r.decision = 0 THEN 1 ELSE 0 END), 0) AS pending
         FROM staff_staff s
+        JOIN staff_staff_department d
+            ON d.staff_id = s.staff_id
         LEFT JOIN department_tester_reports r
             ON r.author = s.staff_id
             {week_check}

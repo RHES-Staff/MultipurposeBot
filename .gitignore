@@ -4,7 +4,7 @@
 logs/
 __pycache__/
 .vscode/
-app.db*
+app*.db*
 uv.lock
 build
 dist
