@@ -9,7 +9,7 @@ import discord
 import pytest
 
 from features.development import Development
-from features.views.leaderboard import SingleTesterStatEmbed
+from features.views.leaderboard import SingleTesterStatEmbed, TesterStatEmbed
 
 if TYPE_CHECKING:
     from main import MultipurposeBot
@@ -119,13 +119,23 @@ def test_bugreport_leaderboard_exact_bounds(
     assert end == expected_end
 
 
-async def test_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
-    """Test that Leaderboard Embeds can print."""
+async def test_single_tester_stat_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
+    """Test that Single Leaderboard Embeds can print."""
     bot, guild_info, _ = bot_test
     dev: Development = cast(Development, bot.get_cog("Development"))
     embed: SingleTesterStatEmbed = await SingleTesterStatEmbed.create(dev, guild_info["dev"]["users"]["tester"])
     assert embed
     assert discord.utils.get(embed.fields, name="Week Stats")
     assert discord.utils.get(embed.fields, name="Overall Stats")
+    # we would just implicitly trust that the content here is accurate, get_tester_stats is the culprit if the content is inaccurat
+    # as we have learned, we fucked up.
+
+async def test_multiple_tester_stat_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
+    """Test that Overall Leaderboard Embeds can print."""
+    bot, guild_info, _ = bot_test
+    dev: Development = cast(Development, bot.get_cog("Development"))
+    embed: TesterStatEmbed = await TesterStatEmbed.create(dev, guild_info["dev"]["users"]["tester"])
+    assert embed
+    assert discord.utils.get(embed.fields, name="Tester Fixes Leaderboard")
     # we would just implicitly trust that the content here is accurate, get_tester_stats is the culprit if the content is inaccurat
     # as we have learned, we fucked up.

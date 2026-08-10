@@ -2,8 +2,11 @@
 .env*
 *.js
 logs/
-__pycache__
+__pycache__/
+.vscode/
 app.db*
 uv.lock
 build
 dist
+.mypy_cache
+.pytest_cache

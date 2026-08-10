@@ -21,7 +21,7 @@ class TestRegisterStaff:
         _, ctx, _ = bot_test
         member: discord.Member = ctx["dev"]["users"]["tester"]
         db = Database()
-        staff_id: Row = await register_staff(member)
+        staff_id: int = await register_staff(member, ["qa"])
 
         row: Row | None = await db.fetchone("SELECT * FROM staff_staff WHERE staff_id = :id;", {"id": staff_id})
         assert row
@@ -33,8 +33,8 @@ class TestRegisterStaff:
         _, ctx, _ = bot_test
         member: discord.Member = ctx["dev"]["users"]["tester"]
 
-        insert1: Row = await register_staff(member)
-        insert2: Row = await register_staff(member)
+        insert1: int = await register_staff(member, ["qa"])
+        insert2: int = await register_staff(member, ["qa"])
         assert insert1 == insert2
 
 
@@ -45,7 +45,7 @@ class TestGetStaffByDiscordUser:
         """Check if get_staff_by_discord_user can properly handle finding staffs."""
         _, ctx, _ = bot_test
         member: discord.Member = ctx["dev"]["users"]["tester"]
-        await register_staff(member)
+        await register_staff(member, ["qa"])
 
         result: Row | None = await get_staff_by_discord_user(member)
         assert result

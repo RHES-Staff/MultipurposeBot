@@ -11,12 +11,11 @@ import discord
 from discord.ext import commands
 
 import database
-from features.views.leaderboard import SingleTesterStatEmbed
+from features.views.leaderboard import LogsEmbed, SingleTesterStatEmbed, TesterStatEmbed
 
 if TYPE_CHECKING:
     import aiosqlite
-    from discord.abc import GuildChannel, PrivateChannel
-    from discord.threads import Thread
+    from discord.abc import TextChannel
 
     from main import MultipurposeBot
 
@@ -29,12 +28,14 @@ class Development(commands.Cog):
     instance: Self | None = None
     testing_guild: discord.Guild
     bug_report_channels: list[discord.TextChannel]
-    admin_role_ids: list[discord.Role]
     minimum_report_quota: int
     leaderboard_channel: discord.TextChannel
     _leaderboard_message: discord.Message
     logging_channel: discord.TextChannel
     start_of_week: int
+    tester_role: discord.Role
+    head_of_tester_role: discord.Role
+    developer_role: discord.Role
 
     def __init__(self, bot: MultipurposeBot) -> None:
         Development.instance = self
@@ -73,10 +74,18 @@ class Development(commands.Cog):
             raise TypeError("All bug_report_channels must be discord.TextChannel")
         self.bug_report_channels: list[discord.TextChannel] = cast(list[discord.TextChannel], bug_report_channels)
 
-        admin_role_ids: list[discord.Role | None] = [testing_guild.get_role(role_id) for role_id in config["admin_role_ids"]]
-        if not all(isinstance(id, discord.Role) for id in admin_role_ids):
-            raise TypeError("One configured Admin Role ID is invalid.")
-        self.admin_role_ids: list[discord.Role] = cast(list[discord.Role], admin_role_ids)
+        tester_role: discord.Role | None = testing_guild.get_role(config["tester_role"])
+        if not tester_role:
+            raise TypeError("No Tester Role found.")
+        self.tester_role: discord.Role = tester_role
+        head_of_tester_role: discord.Role | None = testing_guild.get_role(config["head_of_tester_role"])
+        if not head_of_tester_role:
+            raise TypeError("No Head of Testing Role found.")
+        self.head_of_tester_role: discord.Role = head_of_tester_role
+        developer_role: discord.Role | None = testing_guild.get_role(config["developer_role"])
+        if not developer_role:
+            raise TypeError("No Developer Role found.")
+        self.developer_role: discord.Role = developer_role
 
         self.minimum_report_quota: int = config["minimum_report_quota"]
 
@@ -85,22 +94,14 @@ class Development(commands.Cog):
             raise TypeError("Configured Leaderboard Channel Type is not supported")
         self.leaderboard_channel: discord.TextChannel = leaderboard_channel
 
-        try:
-            leaderboard_message: discord.Message | None = await self.bot.cached_fetch_message(self.leaderboard_channel, config["leaderboard_message"])
-            if not leaderboard_message:
-                raise ValueError("Missing Leaderboard Message")
-        except (ValueError, discord.errors.Forbidden) as e:
-            log.debug("Controlled Exception occured.", extra={"error": e, "supposed_id": config["leaderboard_message"]})
-            leaderboard_message: discord.Message = await leaderboard_channel.send("Leaderboard")  # TODO: replace w/ a real leaderboard
-            log.info("Sent new Leaderboard Message", extra={"new_id": leaderboard_message})
-        self.leaderboard_message: discord.Message = leaderboard_message
+        self.start_of_week: int = config["start_of_week"]
+
+        self.bot.fire_and_forget(self.refresh_leaderboard())
 
         logging_channel: Any = await self.bot.cached_fetch_channel(config["logging_channel"])
         if not isinstance(logging_channel, discord.TextChannel):
             raise TypeError("Configured Logging Channel Type is not supported")
         self.logging_channel: discord.TextChannel = logging_channel
-
-        self.start_of_week: int = config["start_of_week"]
 
     @discord.app_commands.command(name="stats", description="Check your Stats for Bug Reports.")
     async def stats(self, interaction: discord.Interaction) -> None:
@@ -121,9 +122,24 @@ class Development(commands.Cog):
         if discord.Object(message.author.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(
             message.author
         ):
-            # this means author is somehow a staff. the question is what dept?
+            # TODO: put this thing inside register_staff
+            author_roles: list[discord.Role] = message.author.roles
+            department_keys: list[str] = []
+            if self.tester_role in author_roles or self.head_of_tester_role in author_roles:
+                department_keys.append("qa")
+            if self.developer_role in author_roles:
+                department_keys.append("dev")
+
+            if not department_keys:
+                log.warning(
+                    "Member is not registered and has no matching department roles.",
+                    extra={"id": message.author.id, "username": message.author.name},
+                )
+                return
+
             log.warning("Member is not registered.", extra={"id": message.author.id, "username": message.author.name})
-            await database.staff.register_staff(message.author)
+
+            await database.staff.register_staff(message.author, department_keys)
         await self.register_report(message)
 
     @commands.Cog.listener()
@@ -139,20 +155,29 @@ class Development(commands.Cog):
                 extra={"user": payload.user_id, "is_itself": payload.user_id == self.bot.user.id},  # ty: ignore[unresolved-attribute]
             )
             return
+        log.debug(
+            "Reaction made",
+            extra={"user": payload.user_id, "is_itself": payload.user_id == self.bot.user.id},  # ty: ignore[unresolved-attribute]
+        )
+        await self.fix_report(payload)
 
-        channel: GuildChannel | PrivateChannel | Thread | None = await self.bot.cached_fetch_channel(payload.channel_id)
-        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-            log.debug("Reaction is sent on a deliberately ignored channel.", extra={"channel": channel})
-            return
-        message: discord.Message | None = await self.bot.cached_fetch_message(channel, payload.message_id)
-        if not message:
-            log.warning("for some reason the reacted message returned a nil.", extra={"reaction": payload, "channel": channel})
-            return
-        if message.author in self.bot.departments["dev"]["servers"]:
-            # this means author is somehow a staff. the question is what dept?
-            log.warning("Member is not registered.", extra={"member": message.author})
-            await database.staff.register_staff(message.author)
-        await self.fix_report(payload.emoji, payload.member, message)
+    async def refresh_leaderboard(self) -> None:
+        """Helper function to automatically refresh Leaderboard View."""
+        message_id: int = self.bot.departments["dev"]["configuration"]["leaderboard_message"]
+        if not hasattr(self, "_leaderboard_channel"):
+            try:
+                leaderboard_message: discord.Message | None = await self.bot.cached_fetch_message(self.leaderboard_channel, message_id)
+                if not leaderboard_message:
+                    raise ValueError("Missing Leaderboard Message")
+            except (ValueError, discord.errors.Forbidden) as e:
+                log.debug("Controlled Exception occured.", extra={"error": e, "supposed_id": message_id})
+                leaderboard_message: discord.Message = await self.leaderboard_channel.send("Refreshing Leaderboard...")
+                log.info("Sent new Leaderboard Message", extra={"new_id": leaderboard_message})
+            self.leaderboard_message: discord.Message = leaderboard_message
+
+        tester_leaderboard: TesterStatEmbed = await TesterStatEmbed.create(self)
+        await self.leaderboard_message.edit(embed=tester_leaderboard, attachments=tester_leaderboard.files)
+        log.debug("Refreshed Leaderbaord successfully")
 
     # Business Logic
     async def register_report(self, message: discord.Message) -> None:
@@ -171,8 +196,7 @@ class Development(commands.Cog):
         db = database.Database()
         await db.execute(bug_report_register_query, {"message_id": message.id, "author_id": message.author.id, "content": message.content})
 
-        await message.add_reaction("✅")
-        await message.add_reaction("❌")
+        await asyncio.gather(message.add_reaction("✅"), message.add_reaction("❌"), self.refresh_leaderboard())
 
         log.info(
             "Bug Registered.",
@@ -185,27 +209,30 @@ class Development(commands.Cog):
             },
         )
 
-    async def fix_report(self, decision: discord.PartialEmoji, decider: discord.Member, message: discord.Message) -> None:
+    async def fix_report(self, payload: discord.RawReactionActionEvent) -> None:
         """Indicate that a Bug Report is Fixed or ignored."""
-        if message.guild != self.testing_guild:
-            log.debug("reaction not made in testing server.", extra={"guild": message.guild})
+        if not discord.utils.get(self.bug_report_channels, id=payload.channel_id):
+            log.debug("reaction is not made on a bug report channel.", extra={"channel": payload.channel_id})
             return
-        if message.channel not in self.bug_report_channels:
-            log.debug("reaction not made in a bug report channel.", extra={"channel": message.channel})
+        if not payload.member:
             return
-        if not any(role in self.admin_role_ids for role in decider.roles):
-            log.debug("reaction not made by an admin.", extra={"user": decider, "roles": decider.roles})
-            await message.remove_reaction(decision, decider)
+        if not any(role in payload.member.roles for role in [self.developer_role, self.head_of_tester_role]):
+            log.debug("reaction not made by an admin.", extra={"user": payload.member, "roles": payload.member.roles})
+            # we're sure that there's a message here, so we won't bother w/ checking, casts are just to make ty happy
+            channel: TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
+            message: discord.Message = cast(discord.Message, await self.bot.cached_fetch_message(channel, payload.message_id))
+            await message.remove_reaction(payload.emoji, payload.member)
             return
-        if (is_accepted := {"✅": 1, "❌": -1}.get(decision.name)) is None:
-            log.debug("reaction is not a valid decision", extra={"user": decider, "reaction": decision})
+        if not await database.staff.get_staff_by_discord_user(payload.member):
+            # this means author is somehow a staff. the question is what dept?
+            log.warning("Member is not registered.", extra={"member": payload.member})
+            await database.staff.register_staff(payload.member, ["dev"])
+        if (is_accepted := {"✅": 1, "❌": -1}.get(payload.emoji.name)) is None:
+            log.debug("reaction is not a valid decision", extra={"user": payload.member, "reaction": payload.emoji})
             return
-        if not await self.get_bug(message):
-            log.debug("message is not registered as a bug", extra={"message_object": message})
+        if not await self.get_bug(message_id=payload.message_id):
+            log.debug("message is not registered as a bug", extra={"message_object": payload.message_id})
             return
-        if not await database.staff.get_staff_by_discord_user(decider):
-            log.warning("Member is not registered.", extra={"member": decider})
-            await database.staff.register_staff(decider)
 
         query = """
         UPDATE department_tester_reports
@@ -213,10 +240,18 @@ class Development(commands.Cog):
         WHERE id=:bug_id
         """
         db = database.Database()
-        await db.execute(query, {"decision": is_accepted, "fixer_account_id": decider.id, "bug_id": message.id})
+        await db.execute(query, {"decision": is_accepted, "fixer_account_id": payload.member.id, "bug_id": payload.message_id})
+        self.bot.fire_and_forget(self.refresh_leaderboard())
+        channel: TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
+        message: discord.Message = cast(discord.Message, await self.bot.cached_fetch_message(channel, payload.message_id))
+        logembed = LogsEmbed(message, payload.member, is_accepted)
+        await self.logging_channel.send(embed=logembed, files=logembed.files)
+        await message.forward(self.logging_channel)
         await message.delete()  # TODO: wait for 3-5 seconds before deleting the bug report
 
-        log.info("Bug Decided.", extra={"author": message.author.display_name, "decider": decider.display_name, "id": message.id, "decision": is_accepted})
+        log.info(
+            "Bug Decided.", extra={"author": message.author.display_name, "decider": payload.member.display_name, "id": message.id, "decision": is_accepted}
+        )
 
     # Database Lookups
     def week_bounds(self, date: datetime | None = None, start_of_week: int | None = None) -> tuple[datetime, datetime]:
@@ -230,11 +265,18 @@ class Development(commands.Cog):
         log.debug("week bounds fetched", extra={"date": date, "start": start, "end": end})
         return start, end
 
-    async def get_bug(self, message: discord.Message) -> aiosqlite.Row | None:
+    @overload
+    async def get_bug(self, *, message_id: int) -> aiosqlite.Row | None: ...
+    @overload
+    async def get_bug(self, *, message: discord.Message) -> aiosqlite.Row | None: ...
+    async def get_bug(self, *, message_id: int | None = None, message: discord.Message | None = None) -> aiosqlite.Row | None:
         """Get a registered bug from the database."""
+        if not message and not message_id:
+            raise ValueError("No value provided.")
+        message_id: int = message_id or message.id  # ty: ignore[unresolved-attribute], we're sure we have message.id at this point
         bug_lookup_query = "SELECT * FROM department_tester_reports r WHERE id = :id"
         db = database.Database()
-        return await db.fetchone(bug_lookup_query, {"id": message.id})
+        return await db.fetchone(bug_lookup_query, {"id": message_id})
 
     @overload
     async def get_tester_stats(self, *, week: tuple[datetime, datetime] | None = None) -> list[aiosqlite.Row]: ...
@@ -244,19 +286,20 @@ class Development(commands.Cog):
         """Get a testers statistics from the database."""
         member_check: str = "WHERE s.discord_id = :id" if member else ""
         week_check: str = "AND datetime(r.created_at) BETWEEN datetime(:week_start) AND datetime(:week_end)" if week else ""
+        id_column: str = "" if member else "s.discord_id AS discord_id, s.name AS name,"
 
         stat_lookup_query = f"""
         SELECT
-            s.staff_id AS author,
+            {id_column}
             COALESCE(SUM(CASE WHEN r.decision = 1 THEN 1 ELSE 0 END), 0) AS accepted,
             COALESCE(SUM(CASE WHEN r.decision = -1 THEN 1 ELSE 0 END), 0) AS rejected,
             COALESCE(SUM(CASE WHEN r.decision = 0 THEN 1 ELSE 0 END), 0) AS pending
         FROM staff_staff s
         LEFT JOIN department_tester_reports r
             ON r.author = s.staff_id
-            {member_check}
-        {week_check}
-        GROUP BY s.staff_id;
+            {week_check}
+        {member_check}
+        GROUP BY r.author;
         """
 
         params: dict[str, Any] = {}
@@ -264,7 +307,6 @@ class Development(commands.Cog):
             params["id"] = member.id
         if week:
             params["week_start"], params["week_end"] = week[0].isoformat(), week[1].isoformat()
-        log.debug("tester stats fetched", extra={"member": member, "query": " ".join(stat_lookup_query.split()), "params": params})
         db = database.Database()
         if member:
             return await db.fetchone(stat_lookup_query, params)

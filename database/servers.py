@@ -1,12 +1,16 @@
+"""Common Server Operations on Database."""
+
 import json
 import logging
-from collections.abc import Iterable
-from sqlite3 import Row
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 
 from .core import Database
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from sqlite3 import Row
 
 log: logging.Logger = logging.getLogger(f"App.{__name__}")
 

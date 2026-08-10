@@ -1,5 +1,8 @@
 MIGRATIONS: list[str] = [
-    """
+"""
+/* ===================== fresh setup =============== */
+PRAGMA page_size = 4096;
+
 /* ===================== staff ===================== */
 
 CREATE TABLE staff_staff (
@@ -33,6 +36,10 @@ CREATE TABLE staff_staff_department (
     is_active BOOLEAN NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    FOREIGN KEY (department_key) REFERENCES staff_department (key)
+        ON UPDATE CASCADE ON DELETE RESTRICT
     PRIMARY KEY (staff_id, department_key)
 );
 
@@ -88,7 +95,13 @@ CREATE TABLE department_tester_misc_performance (
 );
 
 /* ===================== indexes ===================== */
+CREATE INDEX idx_staff_staff_discord_id ON staff_staff(discord_id);
 
+CREATE INDEX idx_department_tester_reports_tester_statistics ON department_tester_reports(author, created_at, decision);
+CREATE INDEX idx_department_tester_reports_developer_statistics ON department_tester_reports(fixer, fixed_at, decision);
+CREATE INDEX idx_department_tester_reports_report_severity ON department_tester_reports(severity);
+
+CREATE INDEX idx_department_instructor_instructions_instructor_points ON department_instructor_instructions(claimer, closed_at);
 /* ===================== views ======================= */
 
 /* ===================== triggers ===================== */

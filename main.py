@@ -5,6 +5,7 @@ import json
 import logging
 import logging.config
 import os
+from collections.abc import Coroutine
 from typing import Any
 
 import aiofiles
@@ -19,13 +20,15 @@ load_dotenv()
 
 TOKEN: str = os.getenv("TOKEN") or ""
 
-STANDARD_FIELDS = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
+STANDARD_FIELDS: set[str] = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
 
 
 class ConsoleFormatter(logging.Formatter):
-    def format(self, record):
-        base = super().format(record)
-        extras = {k: v for k, v in record.__dict__.items() if k not in STANDARD_FIELDS}
+    """Formatter Module for Logs."""
+
+    def format(self, record: logging.LogRecord) -> str:  # noqa: D102
+        base: str = super().format(record)
+        extras: dict[str, object] = {k: v for k, v in record.__dict__.items() if k not in STANDARD_FIELDS}
         if extras:
             base += " " + str(extras)
         return base
@@ -35,6 +38,8 @@ class MultipurposeBot(commands.Bot):
     """Multipurpose Bot."""
 
     departments: dict[str, Any]
+    _queue: asyncio.Queue[Coroutine] = asyncio.Queue()
+    _worker_task: asyncio.Task | None = None
 
     def __init__(self) -> None:
         intents: discord.Intents = discord.Intents.default()
@@ -82,6 +87,28 @@ class MultipurposeBot(commands.Bot):
         except discord.NotFound:
             return None
 
+    # helper functions for fire-and-forget funcs
+    @classmethod
+    def start_worker(cls) -> None:
+        """Helper methods for starting up the Async Queue service."""
+        if cls._worker_task is None:
+            cls._worker_task: asyncio.Task[None] = asyncio.create_task(cls._worker())
+
+    @classmethod
+    async def _worker(cls) -> None:
+        while True:
+            coro: Coroutine = await cls._queue.get()
+            try:
+                await coro
+            except Exception:
+                log.exception("Background task failed")
+            finally:
+                cls._queue.task_done()
+
+    def fire_and_forget(self, coro: Coroutine) -> None:
+        """Enqueue a coroutine to run sequentially on the background worker."""
+        self._queue.put_nowait(coro)
+
     async def setup_hook(self, **kwargs: str) -> None:
         """Load all cogs and setup dependencies."""
         os.makedirs("logs", exist_ok=True)
@@ -94,7 +121,7 @@ class MultipurposeBot(commands.Bot):
         await db.connect(kwargs.get("db_path", "app.db"))
 
         self.departments: dict[str, Any] = await database.servers.get_all_departments()
-
+        self.start_worker()
         # load all discord handlers automatically
         cogs_dir: str = os.path.join(os.path.dirname(__file__), "features")
         for filename in os.listdir(cogs_dir):

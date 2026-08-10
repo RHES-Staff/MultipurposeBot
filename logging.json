@@ -3,8 +3,8 @@
   "disable_existing_loggers": false,
   "formatters": {
     "console": {
-      "format": "[{asctime}] [{levelname:<8}] {name}: {message}",
-      "()": "__main__.ConsoleFormatter",
+      "format": "[{asctime}.{msecs:03.0f}] [{levelname:<8}] {name}: {message}",
+      "()": "main.ConsoleFormatter",
       "datefmt": "%Y-%m-%d %H:%M:%S",
       "style": "{"
     },
@@ -50,18 +50,18 @@
   },
   "loggers": {
     "discord": {
-      "handlers": ["discord_file", "console_error"],
-      "level": "INFO",
+      "handlers": ["discord_file", "console_info"],
+      "level": "DEBUG",
       "propagate": false
     },
     "App": {
-      "handlers": ["app_file", "console_debug"],
+      "handlers": ["app_file", "console_info"],
       "level": "DEBUG",
       "propagate": false
     }
   },
   "root": {
-    "level": "WARNING",
-    "handlers": ["console_error"]
+    "level": "INFO",
+    "handlers": ["console_info"]
   }
 }

@@ -92,7 +92,9 @@ async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest) -> Asy
     devserver_config: dict[str, int | list[int]] = {
         "testing_guild": devserver.id,
         "bug_report_channels": [devserver_channels["bug-reports"].id],
-        "admin_role_ids": [devserver_dev_role.id, devserver_head_tester_role.id],
+        "tester_role": devserver_tester_role.id,
+        "head_of_tester_role": devserver_head_tester_role.id,
+        "developer_role": devserver_dev_role.id,
         "minimum_report_quota": 6,
         "leaderboard_channel": devserver_channels["leaderboards"].id,
         "leaderboard_message": 0,
