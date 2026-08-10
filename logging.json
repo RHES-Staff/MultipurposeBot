@@ -55,7 +55,7 @@
       "propagate": false
     },
     "App": {
-      "handlers": ["app_file", "console_debug"],
+      "handlers": ["app_file", "console_info"],
       "level": "DEBUG",
       "propagate": false
     }

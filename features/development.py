@@ -15,7 +15,6 @@ from features.views.leaderboard import LogsEmbed, SingleTesterStatEmbed, TesterS
 
 if TYPE_CHECKING:
     import aiosqlite
-    from discord.abc import TextChannel
 
     from main import MultipurposeBot
 
@@ -119,28 +118,8 @@ class Development(commands.Cog):
             return
         log.debug("message received.", extra={"message_obj": message})
         # TODO: this should be an overall watcher, not a dev-specific function
-        if discord.Object(message.author.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(
-            message.author
-        ):
-            # TODO: put this thing inside register_staff
-            author_roles: list[discord.Role] = message.author.roles
-            department_keys: list[str] = []
-            if self.tester_role in author_roles or self.head_of_tester_role in author_roles:
-                department_keys.append("qa")
-            if self.developer_role in author_roles:
-                department_keys.append("dev")
-
-            if not department_keys:
-                log.warning(
-                    "Member is not registered and has no matching department roles.",
-                    extra={"id": message.author.id, "username": message.author.name},
-                )
-                return
-
-            log.warning("Member is not registered.", extra={"id": message.author.id, "username": message.author.name})
-
-            await database.staff.register_staff(message.author, department_keys)
-        await self.register_report(message)
+        await self.check_if_staff(message.author    )
+        await self.validate_new_bug_report(message)
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
@@ -180,8 +159,29 @@ class Development(commands.Cog):
         log.debug("Refreshed Leaderbaord successfully")
 
     # Business Logic
-    async def register_report(self, message: discord.Message) -> None:
-        """Register a Message as a Bug Report."""
+    async def check_if_staff(self, member: discord.Member) -> None:
+        """Helper function to check if a staff is registered, will register if valid."""
+        if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(member):
+            # TODO: put this thing inside register_staff
+            author_roles: list[discord.Role] = member.roles
+            department_keys: list[str] = []
+            if self.tester_role in author_roles or self.head_of_tester_role in author_roles:
+                department_keys.append("qa")
+            if self.developer_role in author_roles:
+                department_keys.append("dev")
+
+            if not department_keys:
+                log.debug(
+                    "Member is not registered and has no matching department roles.",
+                    extra={"id": member.id, "username": member.name},
+                )
+                return
+            log.warning("Member is not registered.", extra={"id": member.id, "username": member.name})
+
+            await database.staff.register_staff(member, department_keys)
+
+    async def validate_new_bug_report(self, message: discord.Message) -> None:
+        """Validates a message sent in the bug reports channel before registering it in the database."""
         if message.channel not in self.bug_report_channels:
             log.debug("message not in bugreports", extra={"channel": message.channel, "bugreportchannel": self.bug_report_channels})
             return
@@ -189,17 +189,10 @@ class Development(commands.Cog):
             log.debug("message doesn't have media attached", extra={"attachments": message.attachments})
             return
 
-        bug_report_register_query = """
-        INSERT INTO department_tester_reports (id, author, content)
-        VALUES (:message_id, (SELECT staff_id FROM staff_staff WHERE discord_id = :author_id), :content)
-        """
-        db = database.Database()
-        await db.execute(bug_report_register_query, {"message_id": message.id, "author_id": message.author.id, "content": message.content})
-
-        await asyncio.gather(message.add_reaction("✅"), message.add_reaction("❌"), self.refresh_leaderboard())
+        await self.register_report(message)
 
         log.info(
-            "Bug Registered.",
+            "Bug Posted.",
             extra={
                 "author": message.author.display_name,
                 "channel": message.channel.name,
@@ -219,7 +212,7 @@ class Development(commands.Cog):
         if not any(role in payload.member.roles for role in [self.developer_role, self.head_of_tester_role]):
             log.debug("reaction not made by an admin.", extra={"user": payload.member, "roles": payload.member.roles})
             # we're sure that there's a message here, so we won't bother w/ checking, casts are just to make ty happy
-            channel: TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
+            channel: discord.TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
             message: discord.Message = cast(discord.Message, await self.bot.cached_fetch_message(channel, payload.message_id))
             await message.remove_reaction(payload.emoji, payload.member)
             return
@@ -231,8 +224,18 @@ class Development(commands.Cog):
             log.debug("reaction is not a valid decision", extra={"user": payload.member, "reaction": payload.emoji})
             return
         if not await self.get_bug(message_id=payload.message_id):
-            log.debug("message is not registered as a bug", extra={"message_object": payload.message_id})
-            return
+            # BUG: apparently there's a scenario wherein an old bug cant be fixed bcz it's not registered
+            channel: discord.TextChannel = cast(discord.TextChannel, await self.bot.cached_fetch_channel(payload.channel_id))  # verified to not be null
+            message: discord.Message | None = await self.bot.cached_fetch_message(channel, payload.message_id)
+            if not message:
+                raise ValueError("Message cannot be found.")
+            if not any(reaction.me for reaction in message.reactions):
+                log.debug("message is not registered as a bug", extra={"message_object": payload.message_id})
+                return
+            else:
+                log.debug("bug report is an old bug", extra={"message_object": message})
+                await self.check_if_staff(message.author)
+                await self.register_report(message)
 
         query = """
         UPDATE department_tester_reports
@@ -242,7 +245,7 @@ class Development(commands.Cog):
         db = database.Database()
         await db.execute(query, {"decision": is_accepted, "fixer_account_id": payload.member.id, "bug_id": payload.message_id})
         self.bot.fire_and_forget(self.refresh_leaderboard())
-        channel: TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
+        channel: discord.TextChannel = cast(discord.TextChannel, discord.utils.get(self.bug_report_channels, id=payload.channel_id))
         message: discord.Message = cast(discord.Message, await self.bot.cached_fetch_message(channel, payload.message_id))
         logembed = LogsEmbed(message, payload.member, is_accepted)
         await self.logging_channel.send(embed=logembed, files=logembed.files)
@@ -278,13 +281,28 @@ class Development(commands.Cog):
         db = database.Database()
         return await db.fetchone(bug_lookup_query, {"id": message_id})
 
+    async def register_report(self, message: discord.Message) -> None:
+        """Registers a specified Message as a Bug Report."""
+        bug_report_register_query = """
+        INSERT INTO department_tester_reports (id, author, content, created_at)
+        VALUES (:message_id, (SELECT staff_id FROM staff_staff WHERE discord_id = :author_id), :content, :created_at)
+        """
+        db = database.Database()
+        await db.execute(
+            bug_report_register_query, {"message_id": message.id, "author_id": message.author.id, "content": message.content, "created_at": message.created_at}
+        )
+
+        await asyncio.gather(message.add_reaction("✅"), message.add_reaction("❌"), self.refresh_leaderboard())
+
     @overload
     async def get_tester_stats(self, *, week: tuple[datetime, datetime] | None = None) -> list[aiosqlite.Row]: ...
     @overload
     async def get_tester_stats(self, member: discord.Member | discord.User, *, week: tuple[datetime, datetime] | None = None) -> aiosqlite.Row | None: ...
     async def get_tester_stats(self, member: discord.Member | discord.User | None = None, *, week: tuple[datetime, datetime] | None = None):
         """Get a testers statistics from the database."""
-        member_check: str = "WHERE s.discord_id = :id AND d.department_key = 'qa' AND d.is_active = 1" if member else "WHERE d.department_key = 'qa' AND d.is_active = 1"
+        member_check: str = (
+            "WHERE s.discord_id = :id AND d.department_key = 'qa' AND d.is_active = 1" if member else "WHERE d.department_key = 'qa' AND d.is_active = 1"
+        )
         week_check: str = "AND datetime(r.created_at) BETWEEN datetime(:week_start) AND datetime(:week_end)" if week else ""
         id_column: str = "" if member else "s.discord_id AS discord_id, s.name AS name,"
 
