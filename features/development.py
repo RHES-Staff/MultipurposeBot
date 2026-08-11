@@ -117,7 +117,7 @@ class Development(commands.Cog):
             log.debug("message from bot")
             return
         log.debug("message received.", extra={"message_obj": message})
-        await self.check_if_staff(message.author    )
+        await self.check_if_staff(message.author)
         await self.validate_new_bug_report(message)
 
     @commands.Cog.listener()

@@ -23,9 +23,9 @@ class System(commands.Cog):
 
     def __init__(self, bot: MultipurposeBot) -> None:
         self.bot = bot
-        for guild in self.bot.departments["sys"]["servers"]:
-            self.bot.tree.add_command(self.say, guild=guild)
-            self.bot.tree.add_command(self.ping, guild=guild)
+        # for guild in self.bot.departments["sys"]["servers"]: # for temp purposes everyone has access to the commands specified
+        self.bot.tree.add_command(self.say)
+        self.bot.tree.add_command(self.ping)
 
     @app_commands.command(name="say", description="Say something as the Bot")
     async def say(self, interaction: discord.Interaction, message: str) -> None:
@@ -43,6 +43,10 @@ class System(commands.Cog):
         roundtrip = (end - start) * 1000
 
         await interaction.edit_original_response(content=f"Pong!\n\nRoundtrip: `{roundtrip:.2f}ms`\nWebsocket: `{interaction.client.latency * 1000:.2f}ms`")
+
+    @app_commands.command(name="configure", description="Configure the Servers you have")
+    async def configure(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message("TODO", ephemeral=True)
 
 
 async def setup(bot: MultipurposeBot) -> None:  # noqa: D103

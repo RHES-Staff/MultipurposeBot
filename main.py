@@ -132,7 +132,7 @@ class MultipurposeBot(commands.Bot):
 
         for server in {server for department in self.departments.values() for server in department["servers"]}:
             await self.tree.sync(guild=server)
-
+        await self.tree.sync()
         log.info("Finished Bot Bootstrapping")
 
     async def on_ready(self) -> None:
