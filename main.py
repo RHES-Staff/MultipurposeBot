@@ -108,6 +108,19 @@ class MultipurposeBot(commands.Bot):
     def fire_and_forget(self, coro: Coroutine) -> None:
         """Enqueue a coroutine to run sequentially on the background worker."""
         self._queue.put_nowait(coro)
+    
+    async def reload_command(self):
+        self.tree.clear_commands(guild=None)
+        for server in {s for d in self.departments.values() for s in d["servers"]}:
+            self.tree.clear_commands(guild=server)
+        await self.tree.sync()
+        await self.reload_cogs()
+        for server in {s for d in self.departments.values() for s in d["servers"]}:
+            await self.tree.sync(guild=server)
+
+    async def reload_cogs(self):
+        for ext in list(self.extensions.keys()):
+            await self.reload_extension(ext)
 
     async def setup_hook(self, **kwargs: str) -> None:
         """Load all cogs and setup dependencies."""
@@ -129,12 +142,11 @@ class MultipurposeBot(commands.Bot):
                 continue
             await self.load_extension(f"features.{filename[:-3]}")
             log.debug(f"Loaded Feature: {filename}")
-
-        for server in {server for department in self.departments.values() for server in department["servers"]}:
-            await self.tree.sync(guild=server)
         await self.tree.sync()
+        # for server in {s for d in self.departments.values() for s in d["servers"]}:
+        #     await self.tree.sync(guild=server)
         log.info("Finished Bot Bootstrapping")
-
+        
     async def on_ready(self) -> None:
         """Fire Login Things."""
         log.info(f"Logged in as {self.user}")

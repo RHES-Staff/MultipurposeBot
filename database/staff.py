@@ -11,13 +11,10 @@ from .core import Database
 log: logging.Logger = logging.getLogger(f"App.{__name__}")
 
 
-async def register_staff(member: discord.User | discord.Member, department_keys: list[str]) -> int: # TODO: refactor 
+async def register_staff(member: discord.User | discord.Member, department_keys: list[str]) -> int:  # TODO: refactor
     """Register a given staff into one or more departments."""
     insert_staff_query = "INSERT INTO staff_staff (name, discord_id) VALUES (:name, :id) RETURNING *;"
-    insert_dept_query = (
-        "INSERT OR IGNORE INTO staff_staff_department (staff_id, department_key) "
-        "VALUES (:staff_id, :department_key);"
-    )
+    insert_dept_query = "INSERT OR IGNORE INTO staff_staff_department (staff_id, department_key) VALUES (:staff_id, :department_key);"
     db = Database()
     log.warning("Staff Registration is not yet fully implemented, proceed with caution.")
     try:
@@ -48,3 +45,24 @@ async def get_staff_by_discord_user(member: discord.User | discord.Member) -> ai
     results: Row | None = await db.fetchone(search_staff_query, params)
     log.debug("tester stats fetched", extra={"member": member, "query": search_staff_query, "params": params})
     return results
+
+
+async def has_staff_admin_perms(member: discord.User | discord.Member) -> bool:
+    """Check if a staff is either a Dept. Head, or part of Systems Dept."""
+    query: str = """
+    SELECT (
+        EXISTS (SELECT 1 FROM staff_department d WHERE d.head = s.staff_id)
+        OR EXISTS (
+            SELECT 1 FROM staff_staff_department sd
+            WHERE sd.staff_id = s.staff_id
+            AND sd.department_key = 'sys'
+            AND sd.is_active = 1
+        )) AS has_perms
+    FROM staff_staff s
+    WHERE s.discord_id = :id;
+    """
+    db = Database()
+    params: dict[str, int] = {"id": member.id}
+    results: Row | None = await db.fetchone(query, params)
+    if not results: return False
+    return bool(results["has_perms"])

@@ -1,5 +1,5 @@
 MIGRATIONS: list[str] = [
-"""
+    """
 /* ===================== fresh setup =============== */
 PRAGMA page_size = 4096;
 
@@ -161,5 +161,64 @@ INSERT INTO staff_department (key, name, head) VALUES
     ('qa', 'Testing Team', 0),
     ('cont', 'Contributors', 0),
     ('inst', 'Instruction Department', 0);
+    """,
     """
+CREATE TABLE staff_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    noter INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (noter) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+);
+
+CREATE TABLE staff_strikes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    striker INTEGER NOT NULL,
+    department TEXT NOT NULL,
+    strike_end TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (striker) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (department) REFERENCES staff_department (key)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+);
+
+CREATE TABLE asset_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#808080',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE staff_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    tagged_by INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (tag_id) REFERENCES asset_tags (id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (tagged_by) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+);
+""",
 ]
+"""
+- staff notes (can be multiple)
+- staff strikes and reasons (can be multiple, won't be capped to 3 but frontend will be alerted instead)
+- staff tags
+"""

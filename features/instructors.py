@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 from discord import app_commands
@@ -21,8 +21,8 @@ class Instructor(commands.Cog):
 
     def __init__(self, bot: MultipurposeBot) -> None:
         self.bot: MultipurposeBot = bot
-        for guild in self.bot.departments["inst"]["servers"]:
-            self.bot.tree.add_command(self.inst_commands, guild=guild)
+        guild_ids: list[int] = [g.id for g in self.bot.departments["inst"]["servers"]]
+        app_commands.guilds(*guild_ids)(self.inst_commands)
 
     @app_commands.command(name="inst", description="Instructor Commands")
     async def inst_commands(self, interaction: discord.Interaction) -> None:

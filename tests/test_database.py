@@ -6,7 +6,7 @@ import discord
 import pytest_mock
 
 from database.core import Database
-from database.staff import get_staff_by_discord_user, register_staff
+from database.staff import get_staff_by_discord_user, register_staff, has_staff_admin_perms
 from main import MultipurposeBot
 
 if TYPE_CHECKING:
@@ -52,9 +52,19 @@ class TestGetStaffByDiscordUser:
         assert result["discord_id"] == member.id
 
     async def test_not_found(self, bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
-        """Check if get_staff_by_discord_user can properly handle unregistered staffs."""
+        """Check if has_staff_admin_perms can properly recognize staff."""
         _, ctx, _ = bot_test
         outsider: discord.Member = ctx["none"]["users"]["none1"]
 
         result: Row | None = await get_staff_by_discord_user(outsider)
         assert result is None
+
+    async def test_staff_admin_perms(self, bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
+        """Check if has_staff_admin_perms can properly recognize staff."""
+        _, ctx, _ = bot_test
+        outsider: discord.Member = ctx["none"]["users"]["none1"]
+
+        assert not await has_staff_admin_perms(ctx["none"]["users"]["none1"])
+        assert await has_staff_admin_perms(discord.Object(1244953844451119157)) # isaac
+        # TODO: add systems dept in the test 
+        
