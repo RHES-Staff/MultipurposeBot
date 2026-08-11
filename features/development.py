@@ -117,7 +117,6 @@ class Development(commands.Cog):
             log.debug("message from bot")
             return
         log.debug("message received.", extra={"message_obj": message})
-        # TODO: this should be an overall watcher, not a dev-specific function
         await self.check_if_staff(message.author    )
         await self.validate_new_bug_report(message)
 
@@ -161,6 +160,7 @@ class Development(commands.Cog):
     # Business Logic
     async def check_if_staff(self, member: discord.Member) -> None:
         """Helper function to check if a staff is registered, will register if valid."""
+        # TODO: this should be an overall watcher, not a dev-specific function
         if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(member):
             # TODO: put this thing inside register_staff
             author_roles: list[discord.Role] = member.roles

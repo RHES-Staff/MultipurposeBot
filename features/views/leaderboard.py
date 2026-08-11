@@ -159,7 +159,7 @@ class LogsEmbed(BaseDevelopmentEmbed):
     def __init__(self, message: discord.Message, decider: discord.Member, decision: int) -> None:
         super().__init__(
             title="Bug Fixed" if decision == 1 else "Bug Ignored",
-            description=f"**From**: {message.author.mention}\n**Content**: {message.content}\nChannel: {message.channel.mention}",
+            description=f"**From**: {message.author.mention}\n**Channel**: {message.channel.mention}\n**Content**: {message.content}",
             color=discord.Color(0x00FF00) if decision == 1 else discord.Color(0xFF0000),
         )
 
