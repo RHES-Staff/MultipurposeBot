@@ -182,7 +182,7 @@ class MultipurposeBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load all cogs and setup dependencies."""
-        self.departments: dict[str, Any] = await database.servers.get_all_departments()
+        self.departments: dict[str, Any] = await database.department.get_all_departments()
         self.start_worker()
         # load all discord handlers automatically
         cogs_dir: str = os.path.join(os.path.dirname(__file__), "features")

@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 import database
+from database.department import set_department_config
 from features.views.leaderboard import LogsEmbed, SingleTesterStatEmbed, TesterStatEmbed
 
 if TYPE_CHECKING:
@@ -54,13 +55,7 @@ class Development(commands.Cog):
         Args:
             message: The Discord message object representing the new leaderboard.
         """
-        query: str = """
-        UPDATE staff_department 
-            SET configuration = jsonb_set(configuration, '$.leaderboard_message', :id)
-        WHERE key = 'dev';
-        """
-        db = database.Database()
-        asyncio.create_task(db.execute(query, {"id": message.id}))
+        asyncio.create_task(set_department_config("dev", "leaderboard_message", str(message.id)))
         self._leaderboard_message: discord.Message = message
 
     async def cog_load(self) -> None:

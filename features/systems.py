@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -13,12 +12,10 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-import database
+from database.department import set_department_config, set_department_server
 from database.staff import has_staff_admin_perms
 
 if TYPE_CHECKING:
-    from aiosqlite.cursor import Cursor
-
     from main import MultipurposeBot
 
 log = logging.getLogger(f"App.{__name__}")
@@ -44,10 +41,10 @@ class System(commands.Cog):
     @app_commands.command(name="ping", description="Pong!")
     async def ping(self, interaction: discord.Interaction) -> None:
         """Test Bot Connectivity, Will give Roundtrip Statistics."""
-        start = time.monotonic()
+        start: int | float = time.monotonic()
         await interaction.response.send_message("Pinging...", ephemeral=True)
-        end = time.monotonic()
-        roundtrip = (end - start) * 1000
+        end: int | float = time.monotonic()
+        roundtrip: int | float = (end - start) * 1000
 
         await interaction.edit_original_response(content=f"Pong!\n\nRoundtrip: `{roundtrip:.2f}ms`\nWebsocket: `{interaction.client.latency * 1000:.2f}ms`")
 
@@ -58,17 +55,12 @@ class System(commands.Cog):
     async def config_server(self, interaction: discord.Interaction, department: str, server_id: int, operation: app_commands.Choice[int]) -> None:
         """Adds/Removes servers of a Department. Running on a server will add all of the departments command on the said server."""
         # TODO: logging
-        """Adds/Removes a Server from Registration."""
         if not await has_staff_admin_perms(discord_id=interaction.user.id):
             await interaction.response.send_message("You are not permitted.", ephemeral=True)
-        query = ""
-        match operation.value:
-            case 1:
-                query = "UPDATE staff_department SET servers = jsonb_insert(servers, '$[#]', :server_id) WHERE key = :key;"
-            case 0:
-                query = "UPDATE staff_department SET servers = jsonb(COALESCE((SELECT jsonb_group_array(value) FROM json_each(servers) WHERE value != :server_id), '[]')) WHERE key = :key;"
-        db = database.Database()
-        await db.execute(query, params={"key": department, "server_id": server_id})
+            return
+
+        await set_department_server(department, server_id, add=bool(operation.value))
+
         await interaction.response.send_message(f"Updated. {'Added' if operation.value else 'Removed'} {server_id} to {department}")
 
     _KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -84,18 +76,7 @@ class System(commands.Cog):
             await interaction.response.send_message("Invalid key: only letters, numbers, `_` and `-` are allowed.", ephemeral=True)
             return
 
-        db = database.Database()
-
-        query = """
-            UPDATE staff_department
-            SET configuration = jsonb_set(configuration, '$.' || :key, jsonb(:value)),
-                edited_at = CURRENT_TIMESTAMP
-            WHERE key = :department
-        """
-        # BUG: value is always stored as a str, numerical things arent being stored as numbers
-        result: Cursor = await db.execute(query, {"key": key, "value": json.dumps(value), "department": department})
-
-        if result.rowcount == 0:
+        if not await set_department_config(department, key, value):
             await interaction.response.send_message("Department not found.", ephemeral=True)
             return
 
