@@ -49,7 +49,11 @@ class Development(commands.Cog):
 
     @leaderboard_message.setter
     def leaderboard_message(self, message: discord.Message) -> None:
-        """Sets leaderboard_message and updates Database for it."""
+        """Set the active leaderboard message and asynchronously update the database config.
+
+        Args:
+            message: The Discord message object representing the new leaderboard.
+        """
         query: str = """
         UPDATE staff_department 
             SET configuration = jsonb_set(configuration, '$.leaderboard_message', :id)
@@ -159,9 +163,17 @@ class Development(commands.Cog):
 
     # Business Logic
     async def check_if_staff(self, member: discord.Member) -> None:
-        """Helper function to check if a staff is registered, will register if valid."""
+        """Verify if a Discord member is registered as staff, auto-registering them if eligible.
+
+        Checks if the member belongs to a recognized server and holds a relevant role
+        (QA or Dev), registering them with their assigned department keys if they are not
+        already in the database.
+
+        Args:
+            member: The Discord member to check and potentially register.
+        """
         # TODO: this should be an overall watcher, not a dev-specific function
-        if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff_by_discord_user(member):
+        if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff(discord_id=member.id):
             # TODO: put this thing inside register_staff
             author_roles: list[discord.Role] = member.roles
             department_keys: list[str] = []
@@ -178,10 +190,17 @@ class Development(commands.Cog):
                 return
             log.warning("Member is not registered.", extra={"id": member.id, "username": member.name})
 
-            await database.staff.register_staff(member, department_keys)
+            await database.staff.register_staff(member.id, member.name, department_keys)
 
     async def validate_new_bug_report(self, message: discord.Message) -> None:
-        """Validates a message sent in the bug reports channel before registering it in the database."""
+        """Validate an incoming message before registering it as a bug report.
+
+        Ensures the message was posted in a monitored bug reports channel and contains
+        at least one media attachment (image or video) before invoking `register_report`.
+
+        Args:
+            message: The Discord message to validate.
+        """
         if message.channel not in self.bug_report_channels:
             log.debug("message not in bugreports", extra={"channel": message.channel, "bugreportchannel": self.bug_report_channels})
             return
@@ -203,7 +222,18 @@ class Development(commands.Cog):
         )
 
     async def fix_report(self, payload: discord.RawReactionActionEvent) -> None:
-        """Indicate that a Bug Report is Fixed or ignored."""
+        """Process a reaction on a bug report to approve (fix) or reject (ignore) it.
+
+        Validates that the reaction was made in a designated channel by authorized staff,
+        auto-registers the report or decider if necessary, updates the database decision,
+        logs the outcome to the logging channel, and deletes the original message.
+
+        Args:
+            payload: The raw reaction action payload from Discord.
+
+        Raises:
+            ValueError: If the target reaction message cannot be retrieved from Discord.
+        """
         if not discord.utils.get(self.bug_report_channels, id=payload.channel_id):
             log.debug("reaction is not made on a bug report channel.", extra={"channel": payload.channel_id})
             return
@@ -216,10 +246,10 @@ class Development(commands.Cog):
             message: discord.Message = cast(discord.Message, await self.bot.cached_fetch_message(channel, payload.message_id))
             await message.remove_reaction(payload.emoji, payload.member)
             return
-        if not await database.staff.get_staff_by_discord_user(payload.member):
+        if not await database.staff.get_staff(discord_id=payload.member.id):
             # this means author is somehow a staff. the question is what dept?
             log.warning("Member is not registered.", extra={"member": payload.member})
-            await database.staff.register_staff(payload.member, ["dev"])
+            await database.staff.register_staff(payload.member.id, payload.member.name, ["dev"])
         if (is_accepted := {"✅": 1, "❌": -1}.get(payload.emoji.name)) is None:
             log.debug("reaction is not a valid decision", extra={"user": payload.member, "reaction": payload.emoji})
             return
@@ -273,23 +303,45 @@ class Development(commands.Cog):
     @overload
     async def get_bug(self, *, message: discord.Message) -> aiosqlite.Row | None: ...
     async def get_bug(self, *, message_id: int | None = None, message: discord.Message | None = None) -> aiosqlite.Row | None:
-        """Get a registered bug from the database."""
-        if not message and not message_id:
-            raise ValueError("No value provided.")
+        """Get a registered bug report from the database by message or message ID.
+
+        Args:
+            message_id: The Discord message ID associated with the bug report.
+            message: The Discord message object associated with the bug report.
+
+        Returns:
+            aiosqlite.Row | None: The database row representing the bug report, or `None` if not found.
+
+        Raises:
+            ValueError: If neither `message_id` nor `message` is provided.
+        """
+        if not ((message is None) ^ (message_id is None)):
+            raise ValueError("Only provide 1 parameter.")
+
         message_id: int = message_id or message.id  # ty: ignore[unresolved-attribute], we're sure we have message.id at this point
         bug_lookup_query = "SELECT * FROM department_tester_reports r WHERE id = :id"
         db = database.Database()
         return await db.fetchone(bug_lookup_query, {"id": message_id})
 
     async def register_report(self, message: discord.Message) -> None:
-        """Registers a specified Message as a Bug Report."""
+        """Register a Discord message as a bug report in the database and add voting reactions.
+
+        Args:
+            message: The Discord message containing the new bug report.
+        """
         bug_report_register_query = """
         INSERT INTO department_tester_reports (id, author, content, created_at)
         VALUES (:message_id, (SELECT staff_id FROM staff_staff WHERE discord_id = :author_id), :content, :created_at)
         """
         db = database.Database()
         await db.execute(
-            bug_report_register_query, {"message_id": message.id, "author_id": message.author.id, "content": message.content, "created_at": message.created_at}
+            bug_report_register_query,
+            {
+                "message_id": message.id,
+                "author_id": message.author.id,
+                "content": message.content,
+                "created_at": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            },
         )
 
         await asyncio.gather(message.add_reaction("✅"), message.add_reaction("❌"), self.refresh_leaderboard())
@@ -299,7 +351,17 @@ class Development(commands.Cog):
     @overload
     async def get_tester_stats(self, member: discord.Member | discord.User, *, week: tuple[datetime, datetime] | None = None) -> aiosqlite.Row | None: ...
     async def get_tester_stats(self, member: discord.Member | discord.User | None = None, *, week: tuple[datetime, datetime] | None = None):
-        """Get a testers statistics from the database."""
+        """Get tester statistics from the database.
+
+        Args:
+            member: The tester to look up. If omitted, returns stats for all active testers.
+            week: A tuple of `(start_datetime, end_datetime)` to filter reports by creation date.
+                If omitted, includes stats across all time.
+
+        Returns:
+            aiosqlite.Row | None: Statistics row for the specified member, or `None` if non-existent.
+            list[aiosqlite.Row]: List of statistics rows for all active QA testers if `member` is `None`.
+        """
         member_check: str = (
             "WHERE s.discord_id = :id AND d.department_key = 'qa' AND d.is_active = 1" if member else "WHERE d.department_key = 'qa' AND d.is_active = 1"
         )

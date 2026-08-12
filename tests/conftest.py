@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.config
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import discord
 import discord.ext.test as dpytest
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
+db_path = ":memory:"
+
 log: logging.Logger = logging.getLogger(f"App.{__name__}")
 with open("logging.json", "r", encoding="utf-8") as f:
     _config: dict[str, Any] = json.load(f)
@@ -30,8 +33,7 @@ with open("logging.json", "r", encoding="utf-8") as f:
     _config["handlers"]["app_file"]["filename"] = "logs/app.testing.log"
     _config["handlers"]["discord_file"]["filename"] = "logs/discord.testing.log"
     config: str = json.dumps(_config)
-db_path = ":memory:"
-
+logging.config.dictConfig(_config)
 
 async def fake_fetch_member(self: discord.Guild, member_id: int) -> discord.Member | None:
     """Mock of discord.Guild.fetch_member() to return the cached version instead."""
@@ -63,12 +65,9 @@ def fake_content_type_setter(self, value) -> None:  # noqa
 async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest) -> AsyncGenerator:
     """Set up Bot for Testing."""
     log.info("Starting up a Test.", extra={"test": request.node.name})
-    mock_file = mocker.mock_open(read_data=config).return_value
-    mock_file.read = AsyncMock(return_value=config)
-    mock_open_cm = MagicMock()
-    mock_open_cm.__aenter__ = AsyncMock(return_value=mock_file)
-    mock_open_cm.__aexit__ = AsyncMock(return_value=None)
-    mocker.patch("aiofiles.open", return_value=mock_open_cm)
+    
+    db = database.Database()
+    await db.connect(db_path)
 
     bot = main.MultipurposeBot()
     mocker.patch.object(bot.tree, "sync", new_callable=AsyncMock)
@@ -126,7 +125,7 @@ async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest) -> Asy
     query = "UPDATE staff_department SET configuration = jsonb(:config), servers = jsonb(:servers) WHERE key = :key;"
     await db.execute(query, {"key": "dev", "config": json.dumps(devserver_config), "servers": f"[{devserver.id}]"})
     await db.execute(query, {"key": "inst", "config": json.dumps(instserver_config), "servers": f"[{instserver.id}]"})
-    await bot.setup_hook(db_path=db_path)
+    await bot.setup_hook()
 
     new_department = await db.fetchall("SELECT json(configuration) as configuration, json(servers) as servers, * FROM staff_department;")
     for department in new_department:

@@ -37,7 +37,7 @@ class Database:
         if getattr(self, "_initialized", False):
             return
 
-        self.conn = await aiosqlite.connect(path)
+        self.conn: aiosqlite.Connection = await aiosqlite.connect(path)
         self.conn.row_factory = aiosqlite.Row
 
         await self.conn.execute("PRAGMA foreign_keys = ON")

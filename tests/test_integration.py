@@ -8,12 +8,11 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
+import database
 import discord
 import discord.ext.test as dpytest
 import pytest
 import pytest_mock
-
-import database
 from features.development import Development
 from main import MultipurposeBot
 

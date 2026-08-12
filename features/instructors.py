@@ -1,8 +1,9 @@
 """Instructors  Cog - For use of the Instruction Department."""
+
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
@@ -12,7 +13,7 @@ from dotenv import load_dotenv
 if TYPE_CHECKING:
     from main import MultipurposeBot
 
-log = logging.getLogger(f"App.{__name__}")
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 load_dotenv()
 
 

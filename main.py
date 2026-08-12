@@ -1,34 +1,47 @@
 """Multipurpose Bot."""
 
+from __future__ import annotations
+
 import asyncio
+import importlib
 import json
 import logging
 import logging.config
 import os
-from collections.abc import Coroutine
-from typing import Any
+import pkgutil
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import discord
+import uvicorn
 from discord.ext import commands
 from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 import database
 
-log = logging.getLogger(f"App.{__name__}")
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
+    from types import ModuleType
+
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 load_dotenv()
 
 TOKEN: str = os.getenv("TOKEN") or ""
-
-STANDARD_FIELDS: set[str] = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
+API_HOST: str = os.getenv("API_HOST") or "0.0.0.0"
+API_PORT: str = os.getenv("TOKAPI_PORTEN") or "8000"
 
 
 class ConsoleFormatter(logging.Formatter):
     """Formatter Module for Logs."""
 
+    STANDARD_FIELDS: set[str] = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
+
     def format(self, record: logging.LogRecord) -> str:  # noqa: D102
         base: str = super().format(record)
-        extras: dict[str, object] = {k: v for k, v in record.__dict__.items() if k not in STANDARD_FIELDS}
+        extras: dict[str, object] = {k: v for k, v in record.__dict__.items() if k not in self.STANDARD_FIELDS}
         if extras:
             base += " " + str(extras)
         return base
@@ -52,19 +65,48 @@ class MultipurposeBot(commands.Bot):
 
     # helper functions for caching
     async def cached_fetch_user(self, user_id: int) -> discord.User | None:
-        """Check cache first for a User before checking Discord itself."""
+        """Fetches a user, checking local cache before querying Discord.
+
+        Args:
+            user_id: The ID of the user to fetch.
+
+        Returns:
+            The user if found, or None if they do not exist.
+        """
         return self.get_user(user_id) or await self.fetch_user(user_id)
 
     async def cached_fetch_member(self, guild: discord.Guild, member_id: int) -> discord.Member | None:
-        """Check cache first for a Guild Member before fetching from Discord."""
+        """Fetches a guild member, checking local cache before querying Discord.
+
+        Args:
+            guild: The guild to search within.
+            member_id: The ID of the member to fetch.
+
+        Returns:
+            The member if found, or None if they do not exist.
+        """
         return guild.get_member(member_id) or await guild.fetch_member(member_id)
 
     async def cached_fetch_guild(self, guild_id: int) -> discord.Guild | None:
-        """Check cache first for a Guild Member before fetching from Discord."""
+        """Fetches a guild, checking local cache before querying Discord.
+
+        Args:
+            guild_id: The ID of the guild to fetch.
+
+        Returns:
+            The guild if found, or None if it does not exist.
+        """
         return self.get_guild(guild_id) or await self.fetch_guild(guild_id)
 
     async def cached_fetch_channel(self, channel_id: int) -> discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread | None:
-        """Check cache first for a Channel before fetching from Discord."""
+        """Fetches a channel, checking local cache before querying Discord.
+
+        Args:
+            channel_id: The ID of the channel to fetch.
+
+        Returns:
+            The channel if found, or None if it does not exist.
+        """
         return self.get_channel(channel_id) or await self.fetch_channel(channel_id)
 
     async def cached_fetch_message(
@@ -78,7 +120,15 @@ class MultipurposeBot(commands.Bot):
         | discord.PartialMessageable,
         message_id: int,
     ) -> discord.Message | None:
-        """Check cache first for a Message before fetching from Discord."""
+        """Fetches a message, checking local cache before querying Discord.
+
+        Args:
+            channel: The channel containing the message.
+            message_id: The ID of the message to fetch.
+
+        Returns:
+            The message if found, or None if it was not found.
+        """
         cached_msg: discord.Message | None = discord.utils.get(self.cached_messages, id=message_id)
         if cached_msg:
             return cached_msg
@@ -90,7 +140,7 @@ class MultipurposeBot(commands.Bot):
     # helper functions for fire-and-forget funcs
     @classmethod
     def start_worker(cls) -> None:
-        """Helper methods for starting up the Async Queue service."""
+        """Starts the background Async Queue worker task if it is not running."""
         if cls._worker_task is None:
             cls._worker_task: asyncio.Task[None] = asyncio.create_task(cls._worker())
 
@@ -106,33 +156,32 @@ class MultipurposeBot(commands.Bot):
                 cls._queue.task_done()
 
     def fire_and_forget(self, coro: Coroutine) -> None:
-        """Enqueue a coroutine to run sequentially on the background worker."""
+        """Enqueues a coroutine to run sequentially on the background worker.
+
+        Args:
+            coro: The coroutine to execute.
+        """
         self._queue.put_nowait(coro)
-    
-    async def reload_command(self):
+
+    async def reload_command(self) -> None:
+        """Reloads Commands on the Command Tree."""
         self.tree.clear_commands(guild=None)
         for server in {s for d in self.departments.values() for s in d["servers"]}:
             self.tree.clear_commands(guild=server)
-        await self.tree.sync()
+
         await self.reload_cogs()
+
+        await self.tree.sync()
         for server in {s for d in self.departments.values() for s in d["servers"]}:
             await self.tree.sync(guild=server)
 
-    async def reload_cogs(self):
+    async def reload_cogs(self) -> None:
+        """Reloads Cogs."""
         for ext in list(self.extensions.keys()):
             await self.reload_extension(ext)
 
-    async def setup_hook(self, **kwargs: str) -> None:
+    async def setup_hook(self) -> None:
         """Load all cogs and setup dependencies."""
-        os.makedirs("logs", exist_ok=True)
-
-        async with aiofiles.open("logging.json", "r", encoding="utf-8") as f:
-            config: Any = json.loads(await f.read())
-        logging.config.dictConfig(config)
-
-        db = database.Database()
-        await db.connect(kwargs.get("db_path", "app.db"))
-
         self.departments: dict[str, Any] = await database.servers.get_all_departments()
         self.start_worker()
         # load all discord handlers automatically
@@ -142,24 +191,82 @@ class MultipurposeBot(commands.Bot):
                 continue
             await self.load_extension(f"features.{filename[:-3]}")
             log.debug(f"Loaded Feature: {filename}")
-        await self.tree.sync()
-        # for server in {s for d in self.departments.values() for s in d["servers"]}:
-        #     await self.tree.sync(guild=server)
+
+        await self.tree.sync()  # needed for dm commands, so that we don't get locked out if ever we need to call reload commands <3
+
         log.info("Finished Bot Bootstrapping")
-        
+
     async def on_ready(self) -> None:
         """Fire Login Things."""
         log.info(f"Logged in as {self.user}")
 
 
+def init_api() -> FastAPI:
+    """Initializes API Layer of App."""
+    app = FastAPI()
+    api_router = APIRouter()
+    origins: list[str] = [
+        "http://localhost:5173",  # for dev
+    ]
+
+    app.add_middleware(
+        middleware_class=CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],  # BUG: create better cors whitelisting here
+        allow_headers=["*"],
+    )
+
+    package = importlib.import_module("api")
+    package_path: Path = Path(package.__file__).parent
+
+    for _, module_name, is_pkg in pkgutil.iter_modules([str(package_path)]):
+        if is_pkg:
+            continue
+        module: ModuleType = importlib.import_module(f"api.{module_name}")
+        router: Any | None = getattr(module, "router", None)
+        if router is not None:
+            api_router.include_router(router, tags=[module_name])
+
+    app.include_router(router=api_router, prefix="/api")
+    return app
+
+
 async def main() -> None:
     """Set up the whole app."""
     assert TOKEN != "", "Token not found."
+    assert API_PORT.isdigit(), "Port not a valid Number"
+    os.makedirs("logs", exist_ok=True)
+
+    async with aiofiles.open("logging.json", "r", encoding="utf-8") as f:
+        config: Any = json.loads(await f.read())
+    logging.config.dictConfig(config)
+
     bot = MultipurposeBot()
+
+    db = database.Database()
+    await db.connect("app.db")
+
+    log.info("Starting API Server")
+    server_config = uvicorn.Config(
+        init_api(),
+        host=API_HOST,
+        port=int(API_PORT),
+        loop="asyncio",
+        log_level="info",
+    )
+    server = uvicorn.Server(server_config)
+
     try:
-        db = database.Database()
-        async with bot:
-            await bot.start(TOKEN)
+        # as discord.py and uvicorn (FastAPI Server) are both async apps, API will be the Task, due to how discord.py is built
+        if os.getenv("ENABLE_API") == "True":
+            asyncio.create_task(server.serve())
+        if os.getenv("ENABLE_BOT") == "True":
+            async with bot:
+                await bot.start(TOKEN)
+        else:
+            # in the case that the bot is disabled and api is enabled, it will exit asap. this function call prevents that fom happening
+            await asyncio.Event().wait()
     finally:
         await db.close()
 

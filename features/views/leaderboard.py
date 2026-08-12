@@ -92,6 +92,8 @@ class SingleTesterStatEmbed(BaseDevelopmentEmbed):
 class TesterStatEmbed(BaseDevelopmentEmbed):
     """Embed for seeing Leaderboard Stats of all Testers."""
 
+    __test__ = False  # pytest assumes this is a test. no it's not.
+
     def __init__(self, devinstance: Development, date: datetime | None = None) -> None:
         self.devinstance: Development = devinstance
         super().__init__(title="Testing Department Statistics")

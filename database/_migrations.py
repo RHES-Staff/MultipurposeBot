@@ -123,7 +123,7 @@ CREATE TRIGGER update_staff_staff_department_edited_at
 AFTER UPDATE ON staff_staff_department
 FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
-  UPDATE staff_staff_department SET edited_at = CURRENT_TIMESTAMP WHERE key = OLD.key;
+  UPDATE staff_staff_department SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id AND department_key = OLD.department_key;
 END;
 
 CREATE TRIGGER update_department_tester_reports_edited_at
@@ -216,9 +216,14 @@ CREATE TABLE staff_tags (
         ON UPDATE CASCADE ON DELETE RESTRICT
 );
 """,
+    """
+DROP TRIGGER update_staff_staff_department_edited_at;
+
+CREATE TRIGGER update_staff_staff_department_edited_at
+AFTER UPDATE ON staff_staff_department
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
+BEGIN
+    UPDATE staff_staff_department SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id AND department_key = OLD.department_key;
+END;
+""",
 ]
-"""
-- staff notes (can be multiple)
-- staff strikes and reasons (can be multiple, won't be capped to 3 but frontend will be alerted instead)
-- staff tags
-"""

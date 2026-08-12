@@ -1,0 +1,516 @@
+# === Project structure ===
+
+MultipurposeBot/
+├── api/
+│   └── __init__.py
+├── assets/
+│   └── development.png
+├── database/
+│   ├── __init__.py
+│   ├── _migrations.py
+│   ├── core.py
+│   ├── servers.py
+│   └── staff.py
+├── features/
+│   ├── views/
+│   │   └── leaderboard.py
+│   ├── development.py
+│   ├── instructors.py
+│   └── systems.py
+├── logs/
+│   ├── app.log
+│   ├── app.testing.log
+│   ├── discord.log
+│   ├── discord.testing.log
+│   └── fastapi.log
+├── app.db
+├── app.prod.db
+├── app.staging.db
+├── app.test.db
+├── dpytest_0.dat
+├── logging.json
+├── main.py
+├── project.spec
+├── pyproject.toml
+├── requirements.txt
+├── signatures.txt
+└── uv.lock
+
+
+# === api/__init__.py ===
+
+
+# === database/__init__.py ===
+
+
+# === database/_migrations.py ===
+
+
+# === database/core.py ===
+
+class Database:
+    """Database Interface."""
+    def __new__(cls) -> Self:
+        """Get the Singleton Instance of Database."""
+
+    def __init__(self, path: str=_path) -> None:
+
+    async def connect(self, path: str=_path) -> None:
+        """Connect to the database."""
+
+    async def _migrate(self) -> None:
+
+    async def execute(self, sql: str, params: tuple[str, ...] | dict[str, Any]=()) -> aiosqlite.Cursor:
+        """Execute the given query."""
+
+    async def fetchone(self, sql: str, params: tuple[str, ...] | dict[str, Any]=()) -> aiosqlite.Row | None:
+        """Execute the given query and get 1 result back."""
+
+    async def fetchall(self, sql: str, params: tuple[str, ...] | dict[str, Any]=()) -> Iterable[aiosqlite.Row]:
+        """Execute the given query and get all results back."""
+
+    async def close(self) -> None:
+        """Close the Database Connection."""
+
+
+
+# === database/servers.py ===
+
+async def get_all_departments() -> dict[str, Any]:
+    """Retrieve all department records from the database and parse their configurations and servers.
+
+    Returns:
+        dict[str, Any]: A dictionary mapping department keys to their processed details,
+            containing 'name', parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
+    """
+
+
+# === database/staff.py ===
+
+async def add_staff_to_department(staff_id: int, department_key: str) -> None:
+    """Add a staff member to a department if they are not already associated with it.
+
+    Args:
+        staff_id: The internal `staff_staff.staff_id` ID of the staff member.
+        department_key: The internal `staff_department.key` of the department staff should join to.
+    """
+
+async def register_staff(discord_id: int, name: str, department_keys: list[str]) -> int:
+    """Register a Discord user as a staff member and assign them to one or more departments.
+
+    If the user is already registered, existing records are kept and any missing department
+    assignments are added.
+
+    Args:
+        discord_id: The Discord user ID of the staff member.
+        name: The name/display name of the staff member.
+        department_keys: List of department keys to assign to the staff member.
+
+    Returns:
+        int: The internal database `staff_id` for the registered staff member.
+
+    Raises:
+        sqlite3.OperationalError: If database queries return unexpected empty results or fail integrity checks during resolution.
+    """
+
+@overload
+async def get_staff(*, staff_id: int) -> aiosqlite.Row | None:
+
+@overload
+async def get_staff(*, discord_id: int) -> aiosqlite.Row | None:
+
+async def get_staff(*, staff_id: int | None=None, discord_id: int | None=None) -> aiosqlite.Row | None:
+    """Get a staff member by internal Staff ID or Discord ID.
+
+    Args:
+        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
+        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
+
+    Returns:
+        The matching `staff_staff` row, or `None` if no staff member is found.
+
+    Raises:
+        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+    """
+
+@overload
+async def has_staff_admin_perms(*, staff_id: int) -> bool:
+
+@overload
+async def has_staff_admin_perms(*, discord_id: int) -> bool:
+
+async def has_staff_admin_perms(*, staff_id: int | None=None, discord_id: int | None=None) -> bool:
+    """Check if a staff is either a Dept. Head, or part of Systems Dept.
+
+    Args:
+        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
+        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
+
+    Returns:
+        The matching `staff_staff` row, or `None` if no staff member is found.
+
+    Raises:
+        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+    """
+
+@overload
+async def resign_staff(*, staff_id: int) -> None:
+
+@overload
+async def resign_staff(*, discord_id: int) -> None:
+
+async def resign_staff(*, staff_id: int | None=None, discord_id: int | None=None) -> None:
+    """Set a staff member and all their department memberships to inactive.
+
+    Args:
+        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
+        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
+
+    Returns:
+        The matching `staff_staff` row, or `None` if no staff member is found.
+
+    Raises:
+        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+    """
+
+@overload
+async def resign_staff_department(*, staff_id: int, department_key: str) -> None:
+
+@overload
+async def resign_staff_department(*, discord_id: int, department_key: str) -> None:
+
+async def resign_staff_department(*, staff_id: int | None=None, discord_id: int | None=None, department_key: str) -> None:
+    """Set a staff member's membership in a single department to inactive.
+
+    Args:
+        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
+        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
+        department_key: Internal `staff_department.key` to look up.
+
+    Returns:
+        The matching `staff_staff` row, or `None` if no staff member is found.
+
+    Raises:
+        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+    """
+
+
+# === features/development.py ===
+
+class Development(commands.Cog):
+    """Development Cog: Contains Bug Logger."""
+    def __init__(self, bot: MultipurposeBot) -> None:
+
+    @property
+    def leaderboard_message(self) -> discord.Message:
+
+    @leaderboard_message.setter
+    def leaderboard_message(self, message: discord.Message) -> None:
+        """Set the active leaderboard message and asynchronously update the database config.
+
+        Args:
+            message: The Discord message object representing the new leaderboard.
+        """
+
+    async def cog_load(self) -> None:
+        """Configure internal variables needed by the cog."""
+
+    @discord.app_commands.command(name='stats', description='Check your Stats for Bug Reports.')
+    async def stats(self, interaction: discord.Interaction) -> None:
+        """Command Listener for /stats."""
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Listen for Messages sent in a Bug Report."""
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        """Listen for Bug Report manual deletes."""
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        """Listen for a Reaction on Bug Reports."""
+
+    async def refresh_leaderboard(self) -> None:
+        """Helper function to automatically refresh Leaderboard View."""
+
+    async def check_if_staff(self, member: discord.Member) -> None:
+        """Verify if a Discord member is registered as staff, auto-registering them if eligible.
+
+        Checks if the member belongs to a recognized server and holds a relevant role
+        (QA or Dev), registering them with their assigned department keys if they are not
+        already in the database.
+
+        Args:
+            member: The Discord member to check and potentially register.
+        """
+
+    async def validate_new_bug_report(self, message: discord.Message) -> None:
+        """Validate an incoming message before registering it as a bug report.
+
+        Ensures the message was posted in a monitored bug reports channel and contains
+        at least one media attachment (image or video) before invoking `register_report`.
+
+        Args:
+            message: The Discord message to validate.
+        """
+
+    async def fix_report(self, payload: discord.RawReactionActionEvent) -> None:
+        """Process a reaction on a bug report to approve (fix) or reject (ignore) it.
+
+        Validates that the reaction was made in a designated channel by authorized staff,
+        auto-registers the report or decider if necessary, updates the database decision,
+        logs the outcome to the logging channel, and deletes the original message.
+
+        Args:
+            payload: The raw reaction action payload from Discord.
+
+        Raises:
+            ValueError: If the target reaction message cannot be retrieved from Discord.
+        """
+
+    def week_bounds(self, date: datetime | None=None, start_of_week: int | None=None) -> tuple[datetime, datetime]:
+        """Get the start/end of a week based on a date. Defaults to today if no week is given."""
+
+    @overload
+    async def get_bug(self, *, message_id: int) -> aiosqlite.Row | None:
+
+    @overload
+    async def get_bug(self, *, message: discord.Message) -> aiosqlite.Row | None:
+
+    async def get_bug(self, *, message_id: int | None=None, message: discord.Message | None=None) -> aiosqlite.Row | None:
+        """Get a registered bug report from the database by message or message ID.
+
+        Args:
+            message_id: The Discord message ID associated with the bug report.
+            message: The Discord message object associated with the bug report.
+
+        Returns:
+            aiosqlite.Row | None: The database row representing the bug report, or `None` if not found.
+
+        Raises:
+            ValueError: If neither `message_id` nor `message` is provided.
+        """
+
+    async def register_report(self, message: discord.Message) -> None:
+        """Register a Discord message as a bug report in the database and add voting reactions.
+
+        Args:
+            message: The Discord message containing the new bug report.
+        """
+
+    @overload
+    async def get_tester_stats(self, *, week: tuple[datetime, datetime] | None=None) -> list[aiosqlite.Row]:
+
+    @overload
+    async def get_tester_stats(self, member: discord.Member | discord.User, *, week: tuple[datetime, datetime] | None=None) -> aiosqlite.Row | None:
+
+    async def get_tester_stats(self, member: discord.Member | discord.User | None=None, *, week: tuple[datetime, datetime] | None=None):
+        """Get tester statistics from the database.
+
+        Args:
+            member: The tester to look up. If omitted, returns stats for all active testers.
+            week: A tuple of `(start_datetime, end_datetime)` to filter reports by creation date.
+                If omitted, includes stats across all time.
+
+        Returns:
+            aiosqlite.Row | None: Statistics row for the specified member, or `None` if non-existent.
+            list[aiosqlite.Row]: List of statistics rows for all active QA testers if `member` is `None`.
+        """
+
+    @overload
+    async def get_developer_stats(self) -> list[aiosqlite.Row]:
+
+    @overload
+    async def get_developer_stats(self, member: discord.Member) -> aiosqlite.Row | None:
+
+    async def get_developer_stats(self, member: discord.Member | None=None):
+        """Get a developers statistics from the database."""
+
+
+async def setup(bot: MultipurposeBot) -> None:
+
+
+# === features/instructors.py ===
+
+class Instructor(commands.Cog):
+    """Instructor Cog: Contains Instructor Bot."""
+    def __init__(self, bot: MultipurposeBot) -> None:
+
+    @app_commands.command(name='inst', description='Instructor Commands')
+    async def inst_commands(self, interaction: discord.Interaction) -> None:
+        """Instructor-Specific Commands."""
+
+
+async def setup(bot: MultipurposeBot) -> None:
+
+
+# === features/systems.py ===
+
+class System(commands.Cog):
+    """Systems Cog: Commands are for administration of the whole system."""
+    def __init__(self, bot: MultipurposeBot) -> None:
+
+    @app_commands.command(name='say', description='Say something as the Bot')
+    @app_commands.guilds()
+    async def say(self, interaction: discord.Interaction, message: str) -> None:
+        """Say something as the bot."""
+
+    @app_commands.command(name='ping', description='Pong!')
+    async def ping(self, interaction: discord.Interaction) -> None:
+        """Test Bot Connectivity, Will give Roundtrip Statistics."""
+
+    @configure.command(name='server', description='Configure the Servers to register')
+    @app_commands.choices(operation=[app_commands.Choice(name='Add', value=1), app_commands.Choice(name='Remove', value=0)])
+    async def config_server(self, interaction: discord.Interaction, department: str, server_id: int, operation: app_commands.Choice[int]) -> None:
+        """Adds/Removes servers of a Department. Running on a server will add all of the departments command on the said server."""
+
+    @configure.command(name='department', description='Configure the Department Settings')
+    async def config_department(self, interaction: discord.Interaction, department: str, key: str, value: str) -> None:
+        """Sets a key/value pair in the Department's configuration."""
+
+    @app_commands.command(name='reload', description='Reload command Guilds globally.')
+    @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
+    async def reload(self, interaction: discord.Interaction) -> None:
+        """Reload commands."""
+
+
+async def setup(bot: MultipurposeBot) -> None:
+
+
+# === features/views/leaderboard.py ===
+
+class BaseDevelopmentEmbed(discord.Embed):
+    """Base Embed Template for Development - Bug Logger."""
+    def __init__(self, **kwargs: Any) -> None:
+
+
+class SingleTesterStatEmbed(BaseDevelopmentEmbed):
+    """Embed for seeing Leaderboard Stats of a Tester."""
+    def __init__(self, devinstance: Development, member: discord.Member | discord.User, date: datetime | None=None) -> None:
+
+    @classmethod
+    async def create(cls, devinstance: Development, member: discord.Member | discord.User, date: datetime | None=None) -> SingleTesterStatEmbed:
+        """Create an instane of the class, to get around the async problems."""
+
+    async def add_week_stats(self, member: discord.Member | discord.User, week: tuple[datetime, datetime] | None) -> None:
+        """Add a Week Stat Field to the Embed."""
+
+    async def add_overall_stats(self, member: discord.Member | discord.User) -> None:
+        """Add a Overall Stat Field to the Embed."""
+
+
+class TesterStatEmbed(BaseDevelopmentEmbed):
+    """Embed for seeing Leaderboard Stats of all Testers."""
+    def __init__(self, devinstance: Development, date: datetime | None=None) -> None:
+
+    @classmethod
+    async def create(cls, devinstance: Development, date: datetime | None=None) -> TesterStatEmbed:
+        """Create an instance of the class, to get around the async problems."""
+
+    async def add_tester_stats(self) -> None:
+        """Add the Leaderboard Stat on the Embed."""
+
+
+class LogsEmbed(BaseDevelopmentEmbed):
+    """Embed for logging actions."""
+    def __init__(self, message: discord.Message, decider: discord.Member, decision: int) -> None:
+
+
+
+# === main.py ===
+
+class ConsoleFormatter(logging.Formatter):
+    """Formatter Module for Logs."""
+    def format(self, record: logging.LogRecord) -> str:
+
+
+class MultipurposeBot(commands.Bot):
+    """Multipurpose Bot."""
+    def __init__(self) -> None:
+
+    async def cached_fetch_user(self, user_id: int) -> discord.User | None:
+        """Fetches a user, checking local cache before querying Discord.
+
+        Args:
+            user_id: The ID of the user to fetch.
+
+        Returns:
+            The user if found, or None if they do not exist.
+        """
+
+    async def cached_fetch_member(self, guild: discord.Guild, member_id: int) -> discord.Member | None:
+        """Fetches a guild member, checking local cache before querying Discord.
+
+        Args:
+            guild: The guild to search within.
+            member_id: The ID of the member to fetch.
+
+        Returns:
+            The member if found, or None if they do not exist.
+        """
+
+    async def cached_fetch_guild(self, guild_id: int) -> discord.Guild | None:
+        """Fetches a guild, checking local cache before querying Discord.
+
+        Args:
+            guild_id: The ID of the guild to fetch.
+
+        Returns:
+            The guild if found, or None if it does not exist.
+        """
+
+    async def cached_fetch_channel(self, channel_id: int) -> discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread | None:
+        """Fetches a channel, checking local cache before querying Discord.
+
+        Args:
+            channel_id: The ID of the channel to fetch.
+
+        Returns:
+            The channel if found, or None if it does not exist.
+        """
+
+    async def cached_fetch_message(self, channel: discord.TextChannel | discord.VoiceChannel | discord.StageChannel | discord.Thread | discord.DMChannel | discord.GroupChannel | discord.PartialMessageable, message_id: int) -> discord.Message | None:
+        """Fetches a message, checking local cache before querying Discord.
+
+        Args:
+            channel: The channel containing the message.
+            message_id: The ID of the message to fetch.
+
+        Returns:
+            The message if found, or None if it was not found.
+        """
+
+    @classmethod
+    def start_worker(cls) -> None:
+        """Starts the background Async Queue worker task if it is not running."""
+
+    @classmethod
+    async def _worker(cls) -> None:
+
+    def fire_and_forget(self, coro: Coroutine) -> None:
+        """Enqueues a coroutine to run sequentially on the background worker.
+
+        Args:
+            coro: The coroutine to execute.
+        """
+
+    async def reload_command(self) -> None:
+        """Reloads Commands on the Command Tree."""
+
+    async def reload_cogs(self) -> None:
+        """Reloads Cogs."""
+
+    async def setup_hook(self) -> None:
+        """Load all cogs and setup dependencies."""
+
+    async def on_ready(self) -> None:
+        """Fire Login Things."""
+
+
+def init_api() -> FastAPI:
+    """Initializes API Layer of App."""
+
+async def main() -> None:
+    """Set up the whole app."""
+

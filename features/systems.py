@@ -59,7 +59,7 @@ class System(commands.Cog):
         """Adds/Removes servers of a Department. Running on a server will add all of the departments command on the said server."""
         # TODO: logging
         """Adds/Removes a Server from Registration."""
-        if not await has_staff_admin_perms(interaction.user):
+        if not await has_staff_admin_perms(discord_id=interaction.user.id):
             await interaction.response.send_message("You are not permitted.", ephemeral=True)
         query = ""
         match operation.value:
@@ -69,14 +69,14 @@ class System(commands.Cog):
                 query = "UPDATE staff_department SET servers = jsonb(COALESCE((SELECT jsonb_group_array(value) FROM json_each(servers) WHERE value != :server_id), '[]')) WHERE key = :key;"
         db = database.Database()
         await db.execute(query, params={"key": department, "server_id": server_id})
-        await interaction.response.send_message(f"Updated. {"Added" if operation.value else "Removed"} {server_id} to {department}")
+        await interaction.response.send_message(f"Updated. {'Added' if operation.value else 'Removed'} {server_id} to {department}")
 
     _KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
     @configure.command(name="department", description="Configure the Department Settings")
     async def config_department(self, interaction: discord.Interaction, department: str, key: str, value: str) -> None:
         """Sets a key/value pair in the Department's configuration."""
-        if not await has_staff_admin_perms(interaction.user):
+        if not await has_staff_admin_perms(discord_id=interaction.user.id):
             await interaction.response.send_message("You are not permitted.", ephemeral=True)
             return
 
