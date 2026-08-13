@@ -110,10 +110,11 @@ async def load_staff_with_departments(discord_id: int) -> StaffMember | None:
 
     dept_rows: Iterable[Row] = await Database().fetchall(
         "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
-        "d.key, d.name, d.head, d.created_at, d.edited_at "
+        "d.key, d.name, h.staff_id as head_id, h.name as head_name, h.discord_id as head_discord_id, d.created_at, d.edited_at "
         "FROM staff_department d "
         "JOIN staff_staff_department sd ON sd.department_key = d.key "
-        "WHERE sd.staff_id = :sid AND sd.is_active = 1",
+        "JOIN staff_staff h ON h.staff_id = d.head "
+        "WHERE sd.staff_id = :sid AND sd.is_active = 1 ",
         {"sid": staff.staff_id},
     )
     dept_cache: dict[str, Department] = {}
@@ -145,10 +146,11 @@ async def load_all_staff_with_departments(discord_ids: Iterable[int]) -> list[St
 
         dept_rows: Iterable[Row] = await Database().fetchall(
             "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
-            "d.key, d.name, d.head, d.created_at, d.edited_at "
+            "d.key, d.name, h.staff_id as head_id, h.name as head_name, h.discord_id as head_discord_id, d.created_at, d.edited_at "
             "FROM staff_department d "
             "JOIN staff_staff_department sd ON sd.department_key = d.key "
-            "WHERE sd.staff_id = :sid AND sd.is_active = 1",
+            "JOIN staff_staff h ON h.staff_id = d.head "
+            "WHERE sd.staff_id = :sid AND sd.is_active = 1 ",
             {"sid": member.staff_id},
         )
         for drow in dept_rows:
@@ -226,6 +228,48 @@ async def set_department_config(department_key: str, key: str, value: str) -> bo
     return result.rowcount != 0
 
 
+async def set_department_head_by_level(staff_level: int, staff_id: int) -> Row | None:
+    """Set the head of a department, looked up by its staff_level.
+
+    Args:
+        staff_level: The `staff_department.staff_level` identifying the department.
+        staff_id: The `staff_staff.staff_id` of the staff member to assign as head.
+
+    Returns:
+        aiosqlite.Row | None: The updated `staff_department` row, or None if no department matched.
+    """
+    db = Database()
+    await db.execute(
+        "UPDATE staff_department SET head = :staff_id WHERE staff_level = :staff_level",
+        {"staff_id": staff_id, "staff_level": staff_level},
+    )
+    return await db.fetchone(
+        "SELECT * FROM staff_department WHERE staff_level = :staff_level",
+        {"staff_level": staff_level},
+    )
+
+
+async def get_department_keys_by_levels(staff_levels: Iterable[int]) -> list[str]:
+    """Resolve department staff_level identifiers to their keys.
+
+    Args:
+        staff_levels: The staff_level values to resolve.
+
+    Returns:
+        list[str]: The key of each staff_department row matching a given
+            staff_level. Levels with no match are skipped.
+    """
+    levels: list[str] = [str(i) for i in staff_levels]
+    if not levels:
+        return []
+    placeholders: str = ",".join("?" * len(levels))
+    rows: Iterable[Row] = await Database().fetchall(
+        f"SELECT key FROM staff_department WHERE staff_level IN ({placeholders});",
+        tuple(levels),
+    )
+    return [row["key"] for row in rows]
+
+
 # delete
 @overload
 async def resign_staff_department(*, staff_id: int, department_key: str) -> None: ...
@@ -245,19 +289,19 @@ async def resign_staff_department(*, staff_id: int | None = None, discord_id: in
     Raises:
         ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
     """
-    if not ((staff_id is None) ^ (discord_id is None)):
+    if (staff_id is None) == (discord_id is None):
         raise ValueError("Only pass one parameter.")
 
-    if staff_id:
+    if staff_id is not None:
         staff_object: Row | None = await staff.get_staff(staff_id=staff_id)
-    elif discord_id:
+    elif discord_id is not None:
         staff_object: Row | None = await staff.get_staff(discord_id=discord_id)
     if staff_object is None:
         raise ValueError("Staff not found.")
 
     db = Database()
     result = await db.execute(
-        "UPDATE staff_staff_department SET is_active = 0 WHERE staff_id = :id AND department_key = :dept;",
+        "UPDATE staff_staff_department SET is_active = 0 WHERE staff_id = :id AND department_key = (SELECT key from staff_department WHERE staff_level = :dept);",
         {"id": staff_object["staff_id"], "dept": department_key},
     )
     if result.rowcount == 0:

@@ -8,12 +8,11 @@ from typing import Annotated, Any, Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from httpx._models import Response
 from itsdangerous import URLSafeSerializer
 
-from database.cookies import get_current_user, set_auth_cookies
+from database.cookies import clear_auth_cookies, get_current_user, set_auth_cookies
 from database.staff import get_staff, has_staff_admin_perms
 
 load_dotenv()
@@ -79,7 +78,7 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
         raise HTTPException(400, "State mismatch")
 
     async with httpx.AsyncClient() as client:
-        token_resp: Response = await client.post(
+        token_resp: httpx.Response = await client.post(
             "https://discord.com/api/oauth2/token",
             data={
                 "client_id": CLIENT_ID,
@@ -93,7 +92,7 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
         token_resp.raise_for_status()
         tokens: dict[str, Any] = token_resp.json()
 
-        user_resp: Response = await client.get(
+        user_resp: httpx.Response = await client.get(
             "https://discord.com/api/users/@me",
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
         )
@@ -138,3 +137,13 @@ async def check_if_authed(user: Annotated[Row, Depends(get_current_user)]) -> Au
     return AuthResponse(
         discord_id=str(user["discord_id"]), name=user["name"], role="admin" if await has_staff_admin_perms(staff_id=user["staff_id"]) else "user"
     )
+
+
+@router.post("/auth/logout", status_code=204)
+async def logout(response: Response) -> None:
+    """Log the current user out by clearing authentication cookies.
+
+    Args:
+        response: The outgoing HTTP response object.
+    """
+    clear_auth_cookies(response)

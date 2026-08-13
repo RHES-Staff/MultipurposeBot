@@ -264,3 +264,64 @@ class TestBlacklistStaff:
 
         assert result is not None
         assert result["staff_id"] == staff["staff_id"]
+
+class TestUpsertLatestNote:
+    """Tests for database.staff.upsert_latest_note."""
+
+    async def test_creates_note_when_none_exists(self, db: database.Database) -> None:
+        """Should insert a new note when the staff member has none."""
+        staff = await database.staff.get_staff(discord_id=111)
+        row = await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="first note", noter=staff["staff_id"])
+        assert row["note"] == "first note"
+
+    async def test_updates_existing_latest_note(self, db: database.Database) -> None:
+        """Should update the existing note in place instead of inserting a new one."""
+        staff = await database.staff.get_staff(discord_id=111)
+        await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="first note", noter=staff["staff_id"])
+        row = await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="second note", noter=staff["staff_id"])
+        all_notes = await db.fetchall("SELECT * FROM staff_notes WHERE staff_id = :id", {"id": staff["staff_id"]})
+        assert len(list(all_notes)) == 1
+        assert row["note"] == "second note"
+
+
+class TestSetDepartmentHeadByLevel:
+    """Tests for database.department.set_department_head_by_level."""
+
+    async def test_sets_head(self, db: database.Database) -> None:
+        """Should update the head of the department matching staff_level."""
+        staff = await database.staff.get_staff(discord_id=111)
+        dept = await database.department.set_department_head_by_level(staff_level=3, staff_id=staff["staff_id"])
+        assert dept["head"] == staff["staff_id"]
+
+    async def test_returns_none_for_unknown_level(self, db: database.Database) -> None:
+        """Should return None when no department matches the given staff_level."""
+        dept = await database.department.set_department_head_by_level(staff_level=999, staff_id=1)
+        assert dept is None
+
+class TestSyncStaffDepartments:
+    async def test_adds_and_resigns_to_match_target(self, db: Database) -> None:
+        """Should add missing departments and resign ones no longer targeted."""
+        staff = await database.staff.get_staff(discord_id=111)
+        await database.staff.sync_staff_departments(staff_id=staff["staff_id"], department_keys=["ad"])
+        depts = await database.staff.get_staff_departments(staff_id=staff["staff_id"])
+        assert {d["department_key"] for d in depts} == {"ad"}
+
+
+class TestSyncStaffTags:
+    async def test_creates_tag_and_links_staff(self, db: Database) -> None:
+        """Should create a missing tag and attach it to the staff member."""
+        staff = await database.staff.get_staff(discord_id=111)
+        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
+        row = await db.fetchone(
+            "SELECT t.name FROM staff_tags st JOIN asset_tags t ON t.id = st.tag_id WHERE st.staff_id = :sid;",
+            {"sid": staff["staff_id"]},
+        )
+        assert row["name"] == "VIP"
+
+    async def test_does_not_duplicate_existing_tag_link(self, db: Database) -> None:
+        """Should not insert a second staff_tags row for an already-applied tag."""
+        staff = await database.staff.get_staff(discord_id=111)
+        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
+        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
+        rows = await db.fetchall("SELECT * FROM staff_tags WHERE staff_id = :sid;", {"sid": staff["staff_id"]})
+        assert len(list(rows)) == 1

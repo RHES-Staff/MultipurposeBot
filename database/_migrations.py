@@ -234,15 +234,15 @@ ALTER TABLE staff_department
 
 UPDATE staff_department 
 SET staff_level = CASE key
-    WHEN 'bod'  THEN 1  -- Executive / Governance
-    WHEN 'dept' THEN 2  -- Management
-    WHEN 'dev'  THEN 3  -- Core Operations / Departments
+    WHEN 'bod'  THEN 1 
+    WHEN 'dept' THEN 2 
+    WHEN 'dev'  THEN 3 
     WHEN 'ad'   THEN 4
     WHEN 'cr'   THEN 5
     WHEN 'sys'  THEN 6
     WHEN 'qa'   THEN 7
     WHEN 'wiki' THEN 8
-    WHEN 'cont' THEN 9  -- External / Contributors
+    WHEN 'cont' THEN 9 
     WHEN 'inst' THEN 10
 END;
 """,
