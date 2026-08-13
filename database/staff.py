@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast, overload
 
 import aiosqlite
 
+from database.models import DepartmentSummary, StaffMember, row_to_dataclass
+
 from . import department
 from .core import Database
 
@@ -87,6 +89,39 @@ async def get_staff(*, staff_id: int | None = None, discord_id: int | None = Non
     params: dict[str, int] = {"id": id}
     results: Row | None = await db.fetchone(search_staff_query, params)
     return results
+
+
+async def get_all_staff_with_departments() -> list[StaffMember]:
+    """Get all staff members with a lightweight list of their active departments.
+
+    Each department in a staff member's `departments` list only has its `key` and
+    `name` populated.
+
+    Returns:
+        list[StaffMember]: All staff members, each with lightweight `DepartmentSummary` placeholders.
+    """
+    sql = """
+        SELECT s.*, d.key AS dept_key, d.name AS dept_name
+        FROM staff_staff s
+        LEFT JOIN staff_staff_department sd
+            ON sd.staff_id = s.staff_id AND sd.is_active = 1
+        LEFT JOIN staff_department d
+            ON d.key = sd.department_key
+        ORDER BY s.staff_id
+    """
+    db = Database()
+    rows: Iterable[Row] = await db.fetchall(sql)
+
+    members: dict[int, StaffMember] = {}
+    for row in rows:
+        member: StaffMember | None = members.get(row["staff_id"])
+        if member is None:
+            member = row_to_dataclass(StaffMember, row)
+            members[row["staff_id"]] = member
+        if row["dept_key"] is not None:
+            member.departments.append(DepartmentSummary(key=row["dept_key"], name=row["dept_name"]))
+
+    return list(members.values())
 
 
 @overload

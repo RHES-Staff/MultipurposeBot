@@ -225,5 +225,25 @@ FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
 BEGIN
     UPDATE staff_staff_department SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id AND department_key = OLD.department_key;
 END;
+
+INSERT INTO staff_department (key, name, head) VALUES
+    ('wiki', 'Wiki Department', 0);
+
+ALTER TABLE staff_department
+    ADD COLUMN staff_level INTEGER NOT NULL DEFAULT 0;
+
+UPDATE staff_department 
+SET staff_level = CASE key
+    WHEN 'bod'  THEN 1  -- Executive / Governance
+    WHEN 'dept' THEN 2  -- Management
+    WHEN 'dev'  THEN 3  -- Core Operations / Departments
+    WHEN 'ad'   THEN 4
+    WHEN 'cr'   THEN 5
+    WHEN 'sys'  THEN 6
+    WHEN 'qa'   THEN 7
+    WHEN 'wiki' THEN 8
+    WHEN 'cont' THEN 9  -- External / Contributors
+    WHEN 'inst' THEN 10
+END;
 """,
 ]

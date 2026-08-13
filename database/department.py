@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, overload
 import discord
 from aiosqlite.cursor import Cursor
 
+from database.models import Department, StaffMember, StaffSummary, row_to_dataclass
+
 from . import staff
 from .core import Database
 
@@ -41,7 +43,7 @@ async def get_all_departments() -> dict[str, Any]:
     Returns:
         dict[str, Any]: A dictionary that maps department keys to their processed details. Each entry contains 'name', the parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
     """
-    department_query = "SELECT key, name, json(configuration) AS configuration, json(servers) AS servers FROM staff_department;"
+    department_query = "SELECT key, name, json(configuration) AS configuration, json(servers) AS servers FROM staff_department ORDER BY staff_level ASC;"
     db = Database()
     results: Iterable[Row] = await db.fetchall(department_query)
     departments: dict[str, Any] = {}
@@ -52,6 +54,112 @@ async def get_all_departments() -> dict[str, Any]:
             "servers": [discord.Object(id=guild_id) for guild_id in json.loads(department["servers"])],
         }
     return departments
+
+
+async def get_all_departments_with_staff() -> list[Department]:
+    """Get all departments with a lightweight list of their active staff.
+
+    Each staff member in a department's `staffs` list, and the department's `head`,
+    only have `staff_id` and `name` populated.
+
+    Returns:
+        list[Department]: All departments, each with lightweight `StaffSummary` placeholders.
+    """
+    sql = """
+        SELECT d.key, d.name, d.created_at, d.edited_at,
+            json(d.configuration) AS configuration, json(d.servers) AS servers,
+            d.head AS head_id, h.name AS head_name, h.discord_id as head_discord_id,
+            s.staff_id AS staff_staff_id, s.name AS staff_name, s.discord_id as discord_id
+        FROM staff_department d
+        JOIN staff_staff h ON h.staff_id = d.head
+        LEFT JOIN staff_staff_department sd
+            ON sd.department_key = d.key AND sd.is_active = 1
+        LEFT JOIN staff_staff s
+            ON s.staff_id = sd.staff_id
+        ORDER BY d.staff_level
+    """
+    db = Database()
+    rows: Iterable[Row] = await db.fetchall(sql)
+
+    departments: dict[str, Department] = {}
+    for row in rows:
+        dept: Department | None = departments.get(row["key"])
+        if dept is None:
+            dept = Department.from_row(row)
+            departments[row["key"]] = dept
+        if row["staff_staff_id"] is not None:
+            dept.staffs.append(StaffSummary(staff_id=row["staff_staff_id"], name=row["staff_name"], discord_id=str(row["discord_id"])))
+
+    return list(departments.values())
+
+
+async def load_staff_with_departments(discord_id: int) -> StaffMember | None:
+    """Load a StaffMember and its active departments.
+
+    Args:
+        discord_id: The Discord user ID of the staff member to load.
+
+    Returns:
+        The populated StaffMember with `departments` filled in, or None if not found.
+    """
+    row: Row | None = await Database().fetchone("SELECT * FROM staff_staff WHERE discord_id = :d", {"d": discord_id})
+    if row is None:
+        return None
+
+    staff: StaffMember = row_to_dataclass(StaffMember, row)
+
+    dept_rows: Iterable[Row] = await Database().fetchall(
+        "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
+        "d.key, d.name, d.head, d.created_at, d.edited_at "
+        "FROM staff_department d "
+        "JOIN staff_staff_department sd ON sd.department_key = d.key "
+        "WHERE sd.staff_id = :sid AND sd.is_active = 1",
+        {"sid": staff.staff_id},
+    )
+    dept_cache: dict[str, Department] = {}
+    for drow in dept_rows:
+        key: str = drow["key"]
+        if key not in dept_cache:
+            dept_cache[key] = Department.from_row(drow)
+        staff.departments.append(dept_cache[key])
+
+    return staff
+
+
+async def load_all_staff_with_departments(discord_ids: Iterable[int]) -> list[StaffMember]:
+    """Load several StaffMembers with their active departments, sharing Department instances.
+
+    Args:
+        discord_ids: The Discord user IDs of the staff members to load.
+
+    Returns:
+        list[StaffMember]: The populated staff members, skipping any IDs with no match.
+    """
+    dept_cache: dict[str, Department] = {}
+    staffs: list[StaffMember] = []
+    for discord_id in discord_ids:
+        row: Row | None = await Database().fetchone("SELECT * FROM staff_staff WHERE discord_id = :d", {"d": discord_id})
+        if row is None:
+            continue
+        member: StaffMember = row_to_dataclass(StaffMember, row)
+
+        dept_rows: Iterable[Row] = await Database().fetchall(
+            "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
+            "d.key, d.name, d.head, d.created_at, d.edited_at "
+            "FROM staff_department d "
+            "JOIN staff_staff_department sd ON sd.department_key = d.key "
+            "WHERE sd.staff_id = :sid AND sd.is_active = 1",
+            {"sid": member.staff_id},
+        )
+        for drow in dept_rows:
+            key: str = drow["key"]
+            if key not in dept_cache:
+                dept_cache[key] = Department.from_row(drow)
+            member.departments.append(dept_cache[key])
+
+        staffs.append(member)
+
+    return staffs
 
 
 async def get_department_staff(department_key: str) -> Iterable[Row]:

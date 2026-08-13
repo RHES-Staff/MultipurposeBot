@@ -3,12 +3,17 @@
 MultipurposeBot/
 ├── api/
 │   ├── __init__.py
+│   ├── auth.py
+│   ├── board.py
+│   ├── department.py
 │   └── staff.py
 ├── assets/
 │   └── development.png
 ├── database/
 │   ├── __init__.py
 │   ├── _migrations.py
+│   ├── board.py
+│   ├── cookies.py
 │   ├── core.py
 │   ├── department.py
 │   ├── models.py
@@ -17,7 +22,6 @@ MultipurposeBot/
 │   ├── views/
 │   │   └── leaderboard.py
 │   ├── development.py
-│   ├── instructors.py
 │   └── systems.py
 ├── logs/
 │   ├── app.log
@@ -32,12 +36,13 @@ MultipurposeBot/
 │   │   └── video.mp4
 │   ├── __init__.py
 │   ├── conftest.py
+│   ├── test_board.py
 │   ├── test_database.py
 │   ├── test_development.py
 │   └── test_integration.py
 ├── app.db
-├── app.test.db-shm
-├── app.test.db-wal
+├── app.db-shm
+├── app.db-wal
 ├── dpytest_0.dat
 ├── logging.json
 ├── main.py
@@ -50,13 +55,184 @@ MultipurposeBot/
 # === api/__init__.py ===
 
 
+# === api/auth.py ===
+
+    """/api/auth/* Handlers."""
+
+@router.get('/auth/discord/login')
+def discord_login() -> RedirectResponse:
+    """Redirect the user to the Discord OAuth2 authorization page.
+
+    Generates a secure state token and saves it in an HTTP-only cookie.
+    Constructs the authorization URL and redirects the user.
+
+    Returns:
+        RedirectResponse: A redirect response to Discord with the state cookie set.
+    """
+
+@router.get('/auth/discord/callback')
+async def discord_callback(request: Request, code: str, state: str) -> RedirectResponse:
+    """Process the OAuth2 callback from Discord.
+
+    Validates the state parameter against the stored cookie. Exchanges the authorization code for access tokens, fetches user details from Discord, and verifies staff authorization before redirecting to the dashboard.
+
+    Args:
+        request: The incoming HTTP request.
+        code: The authorization code provided by Discord.
+        state: The state parameter provided by Discord.
+
+    Returns:
+        RedirectResponse: A redirect to the dashboard with authentication cookies set.
+
+    Raises:
+        HTTPException: 400 Bad Request if the state cookie is missing, invalid, or mismatched.
+        HTTPException: 403 Forbidden if the user is not a registered staff member.
+    """
+
+@dataclass
+class AuthResponse:
+    """Holds authentication data for a user.
+
+    Attributes:
+        discord_id: The unique Discord identification string.
+        name: The display name of the user.
+        role: The permission role of the user ('admin' or 'user').
+    """
+    discord_id: str
+    name: str
+    role: Literal['admin', 'user']
+
+@router.get('/auth/me')
+async def check_if_authed(user: Annotated[Row, Depends(get_current_user)]) -> AuthResponse:
+    """Retrieves the authentication status of the current user.
+
+    Args:
+        user: The database record for the authenticated user.
+
+    Returns:
+        AuthResponse: The user details and the assigned access role.
+    """
+
+
+# === api/board.py ===
+
+    """/api/board/* Handlers."""
+
+class TaskSchema(BaseModel):
+    """Schema for one task assigned to a staff member."""
+    id: int
+    title: str
+    done: bool
+
+class StaffSchema(BaseModel):
+    """Schema for one staff member on the board."""
+    id: int
+    discord_id: str
+    name: str
+    status: str = 'active'
+    tags: list[str] = []
+    notes: str | None = ''
+    tasks: list[TaskSchema] = []
+
+class DepartmentSchema(BaseModel):
+    """Schema for one department on the board."""
+    id: int
+    name: str
+    slug: str
+    sort_order: int
+
+class MembershipSchema(BaseModel):
+    """Schema linking a staff member to a department."""
+    staff_id: int
+    department_id: int
+
+class HeadSchema(BaseModel):
+    """Schema linking a department to its head staff member."""
+    staff_id: int
+    department_id: int
+
+class BoardResponse(BaseModel):
+    """Schema for the full /api/board snapshot."""
+    nextStaffId: int
+    nextTaskId: int
+    staff: list[StaffSchema]
+    departments: list[DepartmentSchema]
+    memberships: list[MembershipSchema]
+    heads: list[HeadSchema]
+
+@router.get('', response_model=BoardResponse)
+async def get_board() -> BoardResponse:
+    """Get a full snapshot of staff, departments, and their relationships.
+
+    Returns:
+        BoardResponse: The board state needed to hydrate the frontend.
+    """
+
+
+# === api/department.py ===
+
+    """/api/department/* Handlers."""
+
+class StaffOut(BaseModel):
+    """Lightweight staff member representation for API responses."""
+    staff_id: int
+    name: str
+    discord_id: str
+
+class DepartmentOut(BaseModel):
+    """Department representation for API responses."""
+    key: str
+    name: str
+    head: StaffOut
+    staffs: list[StaffOut]
+
+@router.get('/department')
+async def get_all_departments(user: Annotated[Row, Depends(get_current_user)]) -> list[DepartmentOut]:
+    """Get all departments with their active staff's IDs and names.
+
+    Returns:
+        list[DepartmentOut]: All departments, each with lightweight staff populated.
+    """
+
+
 # === api/staff.py ===
 
     """/api/staff/* Handlers."""
 
-@router.get('/message')
-async def send_message() -> dict[str, str]:
-    """Test."""
+class DepartmentOut(BaseModel):
+    """Lightweight department representation for API responses."""
+    key: str
+    name: str
+
+class StaffOut(BaseModel):
+    """Staff member representation for API responses."""
+    staff_id: int
+    name: str
+    title: str | None
+    timezone: str | None
+    discord_id: str
+    is_active: bool
+    is_blacklisted: bool
+    departments: list[DepartmentOut]
+
+@router.get('/staff')
+async def get_all_staff(user: Annotated[Row, Depends(get_current_user)]) -> list[StaffOut]:
+    """Get all staff members with their department keys and names.
+
+    Returns:
+        list[StaffOut]: All staff members, each with lightweight departments populated.
+    """
+
+class UpdateStaffRequest(BaseModel):
+    discord_id: str
+    name: str
+    department_ids: list[int]
+    tags: list[str] = []
+
+class PatchStaffRequest(BaseModel):
+    notes: str | None = None
+    tags: list[str] | None = None
+    tasks: list[dict] | None = None
 
 
 # === database/__init__.py ===
@@ -65,12 +241,127 @@ async def send_message() -> dict[str, str]:
 # === database/_migrations.py ===
 
 
+# === database/board.py ===
+
+    """Board Aggregation Queries for the /api/board Endpoint."""
+
+async def _get_staff_tags() -> dict[int, list[str]]:
+    """Map each staff member to the names of tags assigned to them.
+
+    Returns:
+        dict[int, list[str]]: A mapping of `staff_id` to a list of tag names.
+    """
+
+async def _get_staff_latest_notes() -> dict[int, str]:
+    """Map each staff member to the text of their most recently created note.
+
+    Returns:
+        dict[int, str]: A mapping of `staff_id` to the latest note text.
+    """
+
+async def get_board_staff() -> list[dict[str, Any]]:
+    """Get every staff member formatted for the /api/board response.
+
+    Returns:
+        list[dict[str, Any]]: One entry per staff member. `tags` holds tag names, `notes` holds only the most recent note, and `tasks` is always empty until a tasks table exists.
+    """
+
+async def get_board_departments() -> list[dict[str, Any]]:
+    """Get every department formatted for the /api/board response.
+
+    Returns:
+        list[dict[str, Any]]: One entry per department. `id` and `sort_order` both come from `staff_level`, and `slug` comes from the department's `key`.
+    """
+
+async def get_board_memberships() -> list[dict[str, Any]]:
+    """Get every active staff-to-department membership formatted for the /api/board response.
+
+    Returns:
+        list[dict[str, Any]]: One entry per active membership, with `department_id` taken from the department's `staff_level`.
+    """
+
+async def get_board_heads() -> list[dict[str, Any]]:
+    """Get every department head formatted for the /api/board response.
+
+    Returns:
+        list[dict[str, Any]]: One entry per department, pairing the head's `staff_id` with the department's `staff_level` as `department_id`.
+    """
+
+async def get_next_staff_id() -> int:
+    """Get the next unused staff_id for client-side optimistic creation.
+
+    Returns:
+        int: One greater than the highest existing `staff_id`, or 1 if no staff exist.
+    """
+
+
+# === database/cookies.py ===
+
+    """Cookies Management for API."""
+
+def create_session_cookie(staff: Row) -> str:
+    """Creates a serialized session cookie payload from staff data.
+
+    Args:
+        staff (Row): Database row containing staff details.
+
+    Returns:
+        str: Serialized JSON payload containing staff ID, Discord ID, and name.
+    """
+
+def set_auth_cookies(resp: Response, tokens: dict, staff: Row) -> None:
+    """Sets secure authentication cookies on the response object.
+
+    Args:
+        resp (Response): The HTTP response object.
+        tokens (dict): Dictionary containing access and refresh tokens.
+        staff (Row): Database row containing staff details.
+    """
+
+def clear_auth_cookies(resp: Response) -> None:
+    """Deletes all authentication cookies from the response object.
+
+    Args:
+        resp (Response): The HTTP response object.
+    """
+
+async def refresh_access_token(refresh_token: str) -> dict:
+    """Requests a new access token from the Discord OAuth2 API.
+
+    Args:
+        refresh_token (str): Valid Discord refresh token.
+
+    Returns:
+        dict: API response containing new tokens and expiration time.
+
+    Raises:
+        httpx.HTTPStatusError: If the Discord API request fails.
+    """
+
+async def get_current_user(request: Request, response: Response) -> Row:
+    """Validates the session cookie and gets the user record.
+
+    Args:
+        request (Request): Incoming HTTP request object.
+        response (Response): Outgoing HTTP response object.
+
+    Returns:
+        Row: Database row of the authenticated staff member.
+
+    Raises:
+        HTTPException: 401 if cookie is missing or invalid.
+        HTTPException: 403 if staff member record does not exist.
+    """
+
+
 # === database/core.py ===
 
     """Core Logic of the Database Interface."""
 
 class Database:
     """Database Interface."""
+    instance = None
+    _path: str = 'app.db'
     def __new__(cls) -> Self:
         """Get the Singleton Instance of Database."""
 
@@ -114,6 +405,36 @@ async def get_all_departments() -> dict[str, Any]:
 
     Returns:
         dict[str, Any]: A dictionary that maps department keys to their processed details. Each entry contains 'name', the parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
+    """
+
+async def get_all_departments_with_staff() -> list[Department]:
+    """Get all departments with a lightweight list of their active staff.
+
+    Each staff member in a department's `staffs` list, and the department's `head`,
+    only have `staff_id` and `name` populated.
+
+    Returns:
+        list[Department]: All departments, each with lightweight `StaffSummary` placeholders.
+    """
+
+async def load_staff_with_departments(discord_id: int) -> StaffMember | None:
+    """Load a StaffMember and its active departments.
+
+    Args:
+        discord_id: The Discord user ID of the staff member to load.
+
+    Returns:
+        The populated StaffMember with `departments` filled in, or None if not found.
+    """
+
+async def load_all_staff_with_departments(discord_ids: Iterable[int]) -> list[StaffMember]:
+    """Load several StaffMembers with their active departments, sharing Department instances.
+
+    Args:
+        discord_ids: The Discord user IDs of the staff members to load.
+
+    Returns:
+        list[StaffMember]: The populated staff members, skipping any IDs with no match.
     """
 
 async def get_department_staff(department_key: str) -> Iterable[Row]:
@@ -173,10 +494,11 @@ async def resign_staff_department(*, staff_id: int | None=None, discord_id: int 
 
 # === database/models.py ===
 
-    """Dataclass models for database rows, with an identity map for shared relations."""
+    """Dataclass models for database rows."""
 
 class DataclassInstance(Protocol):
     """Structural type matching any dataclass, used to bound row_to_dataclass."""
+    __dataclass_fields__: ClassVar[dict[str, Any]]
 
 @overload
 def row_to_dataclass(cls: type[T], row: aiosqlite.Row) -> T:
@@ -198,8 +520,31 @@ def row_to_dataclass(cls: type[T], row: aiosqlite.Row | None) -> T | None:
     """
 
 @dataclass
+class DepartmentSummary:
+    """Store the minimal identity of a department, for shallow embedding in other rows."""
+    key: str
+    name: str
+
+@dataclass
 class StaffMember:
     """Store data for one row from the `staff_staff` table."""
+    staff_id: int
+    name: str
+    title: str | None
+    timezone: str | None
+    discord_id: str
+    is_active: bool
+    is_blacklisted: bool
+    created_at: str
+    edited_at: str
+    departments: list[Department | DepartmentSummary] = field(default_factory=list, repr=False, compare=False)
+
+@dataclass
+class StaffSummary:
+    """Store the minimal identity of a staff member, for shallow embedding in other rows."""
+    staff_id: int
+    name: str
+    discord_id: str
 
 @dataclass
 class Department:
@@ -207,6 +552,14 @@ class Department:
 
     This class parses JSON data from specific table columns.
     """
+    key: str
+    name: str
+    head: StaffSummary
+    configuration: dict[str, Any]
+    servers: list[int]
+    created_at: str
+    edited_at: str
+    staffs: list[StaffSummary] = field(default_factory=list, repr=False, compare=False)
     @overload
     @classmethod
     def from_row(cls, row: aiosqlite.Row) -> Department:
@@ -219,72 +572,15 @@ class Department:
     def from_row(cls, row: aiosqlite.Row | None) -> Department | None:
         """Create a Department object from a database row.
 
-        This method parses the `configuration` and `servers` JSON columns.
+        This method parses the `configuration` and `servers` JSON columns, and builds a shallow `StaffSummary` for the department head.
 
         Args:
-            row: A row from a query. The database query must convert the `configuration` and `servers` BLOB columns to JSON by using the `json()` function.
+            row: A row from a query. The database query must convert the `configuration` and `servers` BLOB columns to JSON by using the `json()` function, and must include `head_id` and `head_name` columns (the head's `staff_id` and `name`).
 
         Returns:
             Department | None: A new Department object, or None if the input row is None.
         """
 
-
-class ModelRegistry:
-    """Store active objects to ensure one shared instance exists per identifier.
-
-    Create one instance of this class for each operation or top-level call. Do not use a module-level global instance, or memory usage will increase continuously.
-    """
-    def __init__(self) -> None:
-
-    def get_staff(self, staff_id: int, factory: Callable[[], StaffMember]) -> StaffMember:
-        """Return the saved StaffMember object for the specified ID.
-
-        If the object does not exist in memory, this method creates a new object by using the factory function.
-
-        Args:
-            staff_id: The unique identifier for the staff member.
-            factory: A function with no parameters that creates a new StaffMember object.
-
-        Returns:
-            StaffMember: The shared StaffMember object for the specified ID.
-        """
-
-    def get_department(self, key: str, factory: Callable[[], Department]) -> Department:
-        """Return the saved Department object for the specified key.
-
-        If the object does not exist in memory, this method creates a new object by using the factory function.
-
-        Args:
-            key: The unique key for the department.
-            factory: A function with no parameters that creates a new Department object.
-
-        Returns:
-            Department: The shared Department object for the specified key.
-        """
-
-
-def get_registry() -> ModelRegistry:
-    """Get or create the model registry for the current asynchronous task.
-
-    This function gets the registry from the current task context. If no registry exists, the function creates a new registry and saves it to the task context.
-
-    Note:
-        Discord.py runs each command or event in a separate asyncio task. Context variables are passed to child tasks, but they are not shared between sibling tasks.
-        This behavior ensures that each top-level call has an isolated registry that does not leak into other commands.
-
-    Returns:
-        ModelRegistry: The registry for the current context.
-    """
-
-async def load_staff_with_departments(discord_id: int) -> StaffMember | None:
-    """Load a StaffMember and its active departments, sharing instances within this task.
-
-    Args:
-        discord_id: The Discord user ID of the staff member to load.
-
-    Returns:
-        The populated StaffMember with `departments` filled in, or None if not found.
-    """
 
 
 # === database/staff.py ===
@@ -326,6 +622,16 @@ async def get_staff(*, staff_id: int | None=None, discord_id: int | None=None) -
 
     Raises:
         ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+    """
+
+async def get_all_staff_with_departments() -> list[StaffMember]:
+    """Get all staff members with a lightweight list of their active departments.
+
+    Each department in a staff member's `departments` list only has its `key` and
+    `name` populated.
+
+    Returns:
+        list[StaffMember]: All staff members, each with lightweight `DepartmentSummary` placeholders.
     """
 
 @overload
@@ -464,6 +770,17 @@ async def resign_staff(*, staff_id: int | None=None, discord_id: int | None=None
 
 class Development(commands.Cog):
     """Development Cog: Contains Bug Logger."""
+    instance: Self | None = None
+    testing_guild: discord.Guild
+    bug_report_channels: list[discord.TextChannel]
+    minimum_report_quota: int
+    leaderboard_channel: discord.TextChannel
+    _leaderboard_message: discord.Message
+    logging_channel: discord.TextChannel
+    start_of_week: int
+    tester_role: discord.Role
+    head_of_tester_role: discord.Role
+    developer_role: discord.Role
     def __init__(self, bot: MultipurposeBot) -> None:
 
     @property
@@ -591,28 +908,14 @@ class Development(commands.Cog):
 async def setup(bot: MultipurposeBot) -> None:
 
 
-# === features/instructors.py ===
-
-    """Instructors  Cog - For use of the Instruction Department."""
-
-class Instructor(commands.Cog):
-    """Instructor Cog: Contains Instructor Bot."""
-    def __init__(self, bot: MultipurposeBot) -> None:
-
-    @app_commands.command(name='inst', description='Instructor Commands')
-    async def inst_commands(self, interaction: discord.Interaction) -> None:
-        """Instructor-Specific Commands."""
-
-
-async def setup(bot: MultipurposeBot) -> None:
-
-
 # === features/systems.py ===
 
     """Systems Cog - For use of the Systems Department."""
 
 class System(commands.Cog):
     """Systems Cog: Commands are for administration of the whole system."""
+    configure = app_commands.Group(name='configure', description='Configure ')
+    _KEY_PATTERN = re.compile('^[A-Za-z0-9_-]{1,64}$')
     def __init__(self, bot: MultipurposeBot) -> None:
 
     @app_commands.command(name='say', description='Say something as the Bot')
@@ -648,6 +951,7 @@ async def setup(bot: MultipurposeBot) -> None:
 
 class BaseDevelopmentEmbed(discord.Embed):
     """Base Embed Template for Development - Bug Logger."""
+    files: list[discord.File]
     def __init__(self, **kwargs: Any) -> None:
 
 
@@ -668,6 +972,7 @@ class SingleTesterStatEmbed(BaseDevelopmentEmbed):
 
 class TesterStatEmbed(BaseDevelopmentEmbed):
     """Embed for seeing Leaderboard Stats of all Testers."""
+    __test__ = False
     def __init__(self, devinstance: Development, date: datetime | None=None) -> None:
 
     @classmethod
@@ -690,11 +995,15 @@ class LogsEmbed(BaseDevelopmentEmbed):
 
 class ConsoleFormatter(logging.Formatter):
     """Formatter Module for Logs."""
+    STANDARD_FIELDS: set[str] = set(logging.LogRecord('', 0, '', 0, '', (), None).__dict__) | {'message', 'asctime'}
     def format(self, record: logging.LogRecord) -> str:
 
 
 class MultipurposeBot(commands.Bot):
     """Multipurpose Bot."""
+    departments: dict[str, Any]
+    _queue: asyncio.Queue[Coroutine] = asyncio.Queue()
+    _worker_task: asyncio.Task | None = None
     def __init__(self) -> None:
 
     async def cached_fetch_user(self, user_id: int) -> discord.User | None:
@@ -811,6 +1120,47 @@ async def db() -> AsyncGenerator:
     """Provide a connected in-memory Database instance."""
 
 
+# === tests/test_board.py ===
+
+    """Testing Board Aggregation Queries."""
+
+class TestGetBoardStaff:
+    """Tests for database.board.get_board_staff."""
+    async def test_default_active_staff(self, db: database.Database) -> None:
+        """Staff with no tags/notes should have empty tags, empty notes, active status."""
+
+    async def test_tags_and_latest_note(self, db: database.Database) -> None:
+        """Should attach tag names and only the most recently added note."""
+
+    async def test_blacklisted_status(self, db: database.Database) -> None:
+        """Blacklisted staff should report status 'blacklisted'."""
+
+
+class TestGetBoardDepartments:
+    """Tests for database.board.get_board_departments."""
+    async def test_id_and_sort_order_from_staff_level(self, db: database.Database) -> None:
+        """id and sort_order should both equal the department's staff_level, and slug should equal key."""
+
+
+class TestGetBoardMemberships:
+    """Tests for database.board.get_board_memberships."""
+    async def test_excludes_inactive_memberships(self, db: database.Database) -> None:
+        """Resigned department memberships should not appear."""
+
+
+class TestGetBoardHeads:
+    """Tests for database.board.get_board_heads."""
+    async def test_one_entry_per_department(self, db: database.Database) -> None:
+        """Should return exactly one head entry per department."""
+
+
+class TestGetNextStaffId:
+    """Tests for database.board.get_next_staff_id."""
+    async def test_returns_max_plus_one(self, db: database.Database) -> None:
+        """Should return one greater than the highest staff_id."""
+
+
+
 # === tests/test_database.py ===
 
     """Testing Global Database Calls."""
@@ -905,21 +1255,6 @@ class TestBlacklistStaff:
         """Should blacklist and return row when looked up by staff_id."""
 
 
-class TestLoadStaffWithDepartments:
-    """Tests for database.models.load_staff_with_departments."""
-    async def test_loads_staff_and_departments(self, db: Database) -> None:
-        """Loaded staff should include its active department."""
-
-    async def test_returns_none_if_not_found(self, db: Database) -> None:
-        """Should return None when no staff matches the given discord_id."""
-
-    async def test_shares_instance_within_registry(self, db: Database) -> None:
-        """Repeated loads within the same registry context should return the same object."""
-
-    async def test_registry_isolated_across_sibling_tasks(self, db: Database) -> None:
-        """Concurrent sibling tasks should each get their own ModelRegistry."""
-
-
 
 # === tests/test_development.py ===
 
@@ -965,17 +1300,41 @@ async def check_developer_points(devinstance: Development, member: discord.Membe
 @dataclass
 class BugReport:
     """A Report Case."""
+    content: str
+    channel_key: str
+    author_key: str
+    attachments: list[str]
+    valid: bool
 
 @dataclass
 class RegisteredReport:
     """A Report Case."""
+    bot: MultipurposeBot
+    dev: Development
+    message: discord.Message
+    author: discord.Member
+    guild_info: dict[str, Any]
+    case: BugReport
 
 @dataclass
 class DecidedReport:
     """A Report Case."""
+    should_decide: bool
+    still_present: discord.Message | None
+    decider: discord.Member
+    author: discord.Member
+    devinstance: Development
+    emoji: str
+    case: BugReport
 
 class TestBugReportBehavior:
     """Test for the expected Behavior of Development Cog when a bug report is posted."""
+    PHOTO = 'tests/media/photo.png'
+    VIDEO = 'tests/media/video.mp4'
+    FILE = 'tests/media/file.txt'
+    REGISTER_CASES: ClassVar[list[ParameterSet]] = [pytest.param(('Nomedia Bug Report', 'bug-reports', 'tester', [], False), id='no-media'), pytest.param(('Invalid Media Bug Report', 'bug-reports', 'tester', [FILE], False), id='invalid-media-type'), pytest.param(('Wrong Channel Bug Report', 'leaderboards', 'tester', [PHOTO], False), id='wrong-channel'), pytest.param(('Photo Bug Report', 'bug-reports', 'tester', [PHOTO], True), id='photo'), pytest.param(('Video Bug Report', 'bug-reports', 'head_tester', [VIDEO], True), id='video'), pytest.param(('Mixed Media Bug Report', 'bug-reports', 'tester', [PHOTO, VIDEO, FILE], True), id='mixed-media')]
+    DECIDER_ROLES_WITH_PERMISSION: ClassVar[set[str]] = {'head_tester', 'developer'}
+    DECIDE_CASES: ClassVar[list[ParameterSet]] = [pytest.param(('tester', '✅'), id='tester-noperms-accept'), pytest.param(('tester', '❌'), id='tester-noperms-reject'), pytest.param(('tester', '❓'), id='tester-noperms-invalid'), pytest.param(('developer', '✅'), id='developer-accept'), pytest.param(('developer', '❌'), id='developer-reject'), pytest.param(('developer', '❓'), id='developer-invalid'), pytest.param(('head_tester', '✅'), id='headtester-accept'), pytest.param(('head_tester', '❌'), id='headtester-reject'), pytest.param(('head_tester', '❓'), id='headtester-invalid')]
     @pytest.fixture
     async def dev_ctx(self, bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> tuple[MultipurposeBot, Development, dict[str, Any]]:
         """Setup Bug Report Behavior Testing."""

@@ -5,3 +5,6 @@ aiosqlite
 uvicorn
 FastAPI
 aiofiles
+pyjwt
+itsdangerous
+httpx

@@ -71,6 +71,18 @@ def format_node(node, indent=0):
         if doc:
             lines.extend(format_docstring(doc, pad))
 
+        var_pad = "    " * (indent + 1)
+        for child in node.body:
+            if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
+                ann = ast.unparse(child.annotation)
+                if child.value is not None:
+                    lines.append(f"{var_pad}{child.target.id}: {ann} = {ast.unparse(child.value)}")
+                else:
+                    lines.append(f"{var_pad}{child.target.id}: {ann}")
+            elif isinstance(child, ast.Assign) and all(isinstance(t, ast.Name) for t in child.targets):
+                names = ", ".join(t.id for t in child.targets)
+                lines.append(f"{var_pad}{names} = {ast.unparse(child.value)}")
+
         for child in node.body:
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 lines.extend(format_node(child, indent + 1))
