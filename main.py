@@ -248,13 +248,7 @@ async def main() -> None:
     await db.connect("app.db")
 
     log.info("Starting API Server")
-    server_config = uvicorn.Config(
-        init_api(),
-        host=API_HOST,
-        port=int(API_PORT),
-        loop="asyncio",
-        log_level="info",
-    )
+    server_config = uvicorn.Config(init_api(), host=API_HOST, port=int(API_PORT), loop="asyncio", log_level="info", log_config=None)
     server = uvicorn.Server(server_config)
 
     try:

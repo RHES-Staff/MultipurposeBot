@@ -158,14 +158,12 @@ class Development(commands.Cog):
 
     # Business Logic
     async def check_if_staff(self, member: discord.Member) -> None:
-        """Verify if a Discord member is registered as staff, auto-registering them if eligible.
+        """Verify if a Discord member is registered as staff.
 
-        Checks if the member belongs to a recognized server and holds a relevant role
-        (QA or Dev), registering them with their assigned department keys if they are not
-        already in the database.
+        Check if the member belongs to a recognized server. Check if the member holds a relevant role (QA or Dev). If the member is not in the database, auto-register the member with the assigned department keys.
 
         Args:
-            member: The Discord member to check and potentially register.
+            member: The Discord member to check and, if eligible, register.
         """
         # TODO: this should be an overall watcher, not a dev-specific function
         if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff(discord_id=member.id):
@@ -190,8 +188,7 @@ class Development(commands.Cog):
     async def validate_new_bug_report(self, message: discord.Message) -> None:
         """Validate an incoming message before registering it as a bug report.
 
-        Ensures the message was posted in a monitored bug reports channel and contains
-        at least one media attachment (image or video) before invoking `register_report`.
+        Ensure the message was posted in a monitored bug reports channel. Ensure the message contains at least one media attachment (image or video). If both checks pass, call `register_report`.
 
         Args:
             message: The Discord message to validate.
@@ -217,17 +214,15 @@ class Development(commands.Cog):
         )
 
     async def fix_report(self, payload: discord.RawReactionActionEvent) -> None:
-        """Process a reaction on a bug report to approve (fix) or reject (ignore) it.
+        """Process a reaction on a bug report to approve or reject it.
 
-        Validates that the reaction was made in a designated channel by authorized staff,
-        auto-registers the report or decider if necessary, updates the database decision,
-        logs the outcome to the logging channel, and deletes the original message.
+        Validate that a staff member made the reaction in a designated channel. Auto-register the report or the decider if needed. Update the decision in the database. Log the outcome to the logging channel. Delete the original message.
 
         Args:
             payload: The raw reaction action payload from Discord.
 
         Raises:
-            ValueError: If the target reaction message cannot be retrieved from Discord.
+            ValueError: The target reaction message cannot be retrieved from Discord.
         """
         if not discord.utils.get(self.bug_report_channels, id=payload.channel_id):
             log.debug("reaction is not made on a bug report channel.", extra={"channel": payload.channel_id})

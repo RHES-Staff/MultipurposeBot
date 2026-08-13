@@ -1,5 +1,6 @@
 """Testing Global Database Calls."""
 
+import asyncio
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ import pytest_mock
 import database.department
 import database.staff
 from database.core import Database
+from database.models import ModelRegistry, StaffMember, get_registry, load_staff_with_departments
 from main import MultipurposeBot
 
 if TYPE_CHECKING:
@@ -262,3 +264,45 @@ class TestBlacklistStaff:
 
         assert result is not None
         assert result["staff_id"] == staff["staff_id"]
+
+
+class TestLoadStaffWithDepartments:
+    """Tests for database.models.load_staff_with_departments."""
+
+    async def test_loads_staff_and_departments(self, db: Database) -> None:
+        """Loaded staff should include its active department."""
+        staff: StaffMember | None = await load_staff_with_departments(discord_id=111)
+
+        assert staff is not None
+        assert staff.name == "Alice"
+        assert len(staff.departments) == 1
+        assert staff.departments[0].key == "dev"
+        assert staff in staff.departments[0].staffs
+
+    async def test_returns_none_if_not_found(self, db: Database) -> None:
+        """Should return None when no staff matches the given discord_id."""
+        staff: StaffMember | None = await load_staff_with_departments(discord_id=999999)
+
+        assert staff is None
+
+    async def test_shares_instance_within_registry(self, db: Database) -> None:
+        """Repeated loads within the same registry context should return the same object."""
+        registry: ModelRegistry = get_registry()
+        first: StaffMember | None = await load_staff_with_departments(discord_id=111)
+        second: StaffMember | None = await load_staff_with_departments(discord_id=111)
+
+        assert first
+        assert second
+        assert first is second
+        assert registry.get_staff(first.staff_id, lambda: first) is first
+
+    async def test_registry_isolated_across_sibling_tasks(self, db: Database) -> None:
+        """Concurrent sibling tasks should each get their own ModelRegistry."""
+
+        async def load() -> StaffMember | None:
+            return await load_staff_with_departments(discord_id=111)
+
+        first, second = await asyncio.gather(load(), load())
+
+        assert first is not second
+        assert first == second

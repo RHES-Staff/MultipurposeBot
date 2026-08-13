@@ -8,8 +8,8 @@ import ast
 import sys
 from pathlib import Path
 
-SKIP_DIRS = {"venv", ".venv", "__pycache__", ".git", "node_modules", "build", "dist", "tests"}
-SKIP_FILES = {"ai_signature.py"}
+SKIP_DIRS = {"venv", ".venv", "__pycache__", ".git", "node_modules", "build", "dist"}
+SKIP_FILES = {"ai_signature.py", "uv.lock", "app.prod.db", "app.staging.db", "app.test.db", "dpytest_0.day", "signature.txt"}
 
 
 def iter_py_files(root: Path):
@@ -99,6 +99,10 @@ def process_file(path: Path, root: Path):
         return [f"# SKIPPED {path.relative_to(root)}: {e}", ""]
 
     out = [f"# === {path.relative_to(root)} ===", ""]
+    module_doc = ast.get_docstring(tree)
+    if module_doc:
+        out.extend(format_docstring(module_doc, ""))
+        out.append("")
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             out.extend(format_node(node))

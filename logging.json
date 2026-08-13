@@ -58,6 +58,26 @@
       "handlers": ["app_file", "console_info"],
       "level": "DEBUG",
       "propagate": false
+    },
+    "uvicorn": {
+      "handlers": ["app_file", "console_info"],
+      "level": "INFO",
+      "propagate": false
+    },
+    "uvicorn.error": {
+      "handlers": ["app_file", "console_info"],
+      "level": "INFO",
+      "propagate": false
+    },
+    "uvicorn.access": {
+      "handlers": ["app_file", "console_info"],
+      "level": "INFO",
+      "propagate": false
+    },
+    "uvicorn.server": {
+      "handlers": ["app_file", "console_info"],
+      "level": "INFO",
+      "propagate": false
     }
   },
   "root": {

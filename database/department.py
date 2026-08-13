@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Any, overload
 import discord
 from aiosqlite.cursor import Cursor
 
-from database.staff import get_staff
-
+from . import staff
 from .core import Database
 
 if TYPE_CHECKING:
@@ -35,10 +34,12 @@ async def register_staff_to_department(staff_id: int, department_key: str) -> No
 
 # Read
 async def get_all_departments() -> dict[str, Any]:
-    """Retrieve all department records from the database and parse their configurations and servers.
+    """Retrieve all department records from the database.
+
+    Parse the configuration and servers fields for each department.
 
     Returns:
-        dict[str, Any]: A dictionary mapping department keys to their processed details, containing 'name', parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
+        dict[str, Any]: A dictionary that maps department keys to their processed details. Each entry contains 'name', the parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
     """
     department_query = "SELECT key, name, json(configuration) AS configuration, json(servers) AS servers FROM staff_department;"
     db = Database()
@@ -91,15 +92,15 @@ async def set_department_server(department_key: str, server_id: int, *, add: boo
 async def set_department_config(department_key: str, key: str, value: str) -> bool:
     """Set a key/value pair in a department's configuration JSON.
 
-    Attempts to parse `value` as JSON first (so numbers, booleans, and null are stored as their native JSON types); falls back to storing it as a plain string if parsing fails.
+    The function first tries to parse `value` as JSON. Numbers, booleans, and null values keep their native JSON type. If the parse fails, the function stores `value` as a plain string.
 
     Args:
         department_key: The internal `staff_department.key` of the department to update.
-        key: The configuration key to set (only letters, numbers, `_` and `-` allowed).
+        key: The configuration key to set. Only letters, numbers, `_`, and `-` are allowed.
         value: The value to store under the given key.
 
     Returns:
-        bool: True if a department was updated, False if no department matched `department_key`.
+        bool: True if the function updated a department. False if no department matched `department_key`.
     """
     db = Database()
     try:
@@ -140,16 +141,16 @@ async def resign_staff_department(*, staff_id: int | None = None, discord_id: in
         raise ValueError("Only pass one parameter.")
 
     if staff_id:
-        staff: Row | None = await get_staff(staff_id=staff_id)
+        staff_object: Row | None = await staff.get_staff(staff_id=staff_id)
     elif discord_id:
-        staff: Row | None = await get_staff(discord_id=discord_id)
-    if staff is None:
+        staff_object: Row | None = await staff.get_staff(discord_id=discord_id)
+    if staff_object is None:
         raise ValueError("Staff not found.")
 
     db = Database()
     result = await db.execute(
         "UPDATE staff_staff_department SET is_active = 0 WHERE staff_id = :id AND department_key = :dept;",
-        {"id": staff["staff_id"], "dept": department_key},
+        {"id": staff_object["staff_id"], "dept": department_key},
     )
     if result.rowcount == 0:
         raise ValueError("Staff is not a member of that department.")

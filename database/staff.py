@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, cast, overload
 
 import aiosqlite
 
+from . import department
 from .core import Database
-from .department import register_staff_to_department
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -19,21 +19,20 @@ log: logging.Logger = logging.getLogger(f"App.{__name__}")
 
 # Create functions
 async def register_staff(discord_id: int, name: str, department_keys: list[str]) -> int:
-    """Register a Discord user as a staff member and assign them to one or more departments.
+    """Register a Discord user as a staff member.
 
-    If the user is already registered, existing records are kept and any missing department
-    assignments are added.
+    Assign the staff member to one or more departments. If the user is already registered, the function keeps the existing records. The function adds any missing department assignments.
 
     Args:
         discord_id: The Discord user ID of the staff member.
-        name: The name/display name of the staff member.
-        department_keys: List of department keys to assign to the staff member.
+        name: The name or display name of the staff member.
+        department_keys: A list of department keys to assign to the staff member.
 
     Returns:
         int: The internal database `staff_id` for the registered staff member.
 
     Raises:
-        sqlite3.OperationalError: If database queries return unexpected empty results or fail integrity checks during resolution.
+        sqlite3.OperationalError: The database queries return unexpected empty results, or fail an integrity check during resolution.
     """
     # TODO: if a staff resigned and reactivated, throw an error and direct them to reactivation instead
     insert_staff_query = "INSERT INTO staff_staff (name, discord_id) VALUES (:name, :id) RETURNING *;"
@@ -48,13 +47,13 @@ async def register_staff(discord_id: int, name: str, department_keys: list[str])
                 raise OperationalError("A supposed duplicate entry did not return its duplicate.")
             log.debug("Attempted staff registration on an already-registered staff.", extra={"discord_id": discord_id, "staff": dict(staff)})
             for department_key in department_keys:
-                await register_staff_to_department(staff["staff_id"], department_key)
+                await department.register_staff_to_department(staff["staff_id"], department_key)
             return staff["staff_id"]
         raise
     if not results:
         raise OperationalError("An expected return from a query did not return.")
     for department_key in department_keys:
-        await register_staff_to_department(results["staff_id"], department_key)
+        await department.register_staff_to_department(results["staff_id"], department_key)
     log.info("Staff registered.", extra={"id": results["staff_id"], "staff_name": results["name"], "discord_id": results["discord_id"]})
     return results["staff_id"]
 
@@ -272,18 +271,18 @@ async def blacklist_staff(*, discord_id: int) -> aiosqlite.Row | None: ...
 async def blacklist_staff(*, staff_id: int | None = None, discord_id: int | None = None) -> aiosqlite.Row | None:
     """Blacklist a staff member by internal Staff ID or Discord ID.
 
-    Only staff members who are currently inactive (`is_active = 0`) can be blacklisted.
+    The function blacklists a staff member only if the member is currently inactive (`is_active = 0`).
 
     Args:
-        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
-        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
+        staff_id: The internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
+        discord_id: The Discord user ID to look up. Mutually exclusive with `staff_id`.
 
     Returns:
-        aiosqlite.Row | None: A row containing `staff_id`, `name`, and `discord_id` of the blacklisted staff member, or `None` if no staff member is found.
+        aiosqlite.Row | None: A row that contains `staff_id`, `name`, and `discord_id` of the blacklisted staff member. Returns `None` if no staff member is found.
 
     Raises:
-        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
-        ValueError: If the matched staff member is still active.
+        ValueError: Neither `staff_id` nor `discord_id` is provided, or both are provided.
+        ValueError: The matched staff member is still active.
     """
     if (staff_id is None) == (discord_id is None):
         raise ValueError("Exactly one of `staff_id` or `discord_id` must be provided.")

@@ -173,7 +173,7 @@ async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest) -> Asy
 async def db() -> AsyncGenerator:
     """Provide a connected in-memory Database instance."""
     d = database.Database()
-    await d.connect(":memory:")
+    await d.connect(db_path)
     await database.staff.register_staff(discord_id=111, name="Alice", department_keys=["dev"])
     yield d
     await d.close()
