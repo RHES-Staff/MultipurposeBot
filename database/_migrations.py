@@ -246,4 +246,9 @@ SET staff_level = CASE key
     WHEN 'inst' THEN 10
 END;
 """,
+    """
+CREATE UNIQUE INDEX idx_staff_tags_unique_assignment ON staff_tags(staff_id, tag_id);
+DELETE FROM staff_staff_department WHERE department_key='wiki';
+DELETE FROM staff_department WHERE key='wiki';
+""",
 ]

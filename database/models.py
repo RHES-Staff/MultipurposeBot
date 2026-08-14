@@ -223,3 +223,66 @@ class DepartmentSummary:
             The complete Department instance if found, or None.
         """
         return await department.get_department(self.key)
+
+@dataclass
+class Note:
+    """Store data for one row from the staff_notes table.
+
+    Attributes:
+        id: The unique ID of the note.
+        staff_id: The staff member the note is about.
+        note: The text content of the note.
+        noter: The staff ID of the author.
+        created_at: The timestamp string when the note was made.
+        edited_at: The timestamp string when the note was last changed.
+    """
+
+    id: int
+    staff_id: int
+    note: str
+    noter: int
+    created_at: str
+    edited_at: str
+
+    @classmethod
+    def from_row(cls, row: aiosqlite.Row) -> Note:
+        """Create a note instance from a database row.
+
+        Args:
+            row: A database query result row.
+
+        Returns:
+            A populated Note instance.
+        """
+        return cls(**dict(row))
+
+
+@dataclass
+class Tag:
+    """Store data for one row from the asset_tags table.
+
+    Attributes:
+        id: The unique ID of the tag.
+        name: The display name of the tag.
+        color: The hex color code of the tag.
+        created_at: The timestamp string when the tag was made.
+        edited_at: The timestamp string when the tag was last changed.
+    """
+
+    id: int
+    name: str
+    color: str
+    created_at: str
+    edited_at: str
+
+    @classmethod
+    def from_row(cls, row: aiosqlite.Row) -> Tag:
+        """Create a tag instance from a database row.
+
+        Args:
+            row: A database query result row.
+
+        Returns:
+            A populated Tag instance.
+        """
+        return cls(**dict(row))

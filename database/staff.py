@@ -152,10 +152,10 @@ async def has_staff_admin_perms(*, staff_id: int | None = None, discord_id: int 
         discord_id: The Discord user ID to look up. Mutually exclusive with `staff_id`.
 
     Returns:
-        models.StaffMember: The updated staff member object.
+        bool: A flag if the user is an Admin.
 
     Raises:
-        ValueError: If you do not supply exactly one identifier, if you provide no field updates, or if no staff member is found.
+        ValueError: If no staff member is found.
     """
     if not ((staff_id is None) ^ (discord_id is None)):
         raise ValueError("Only pass one parameter.")

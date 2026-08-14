@@ -9,6 +9,7 @@ import logging
 import logging.config
 import os
 import pkgutil
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -241,7 +242,11 @@ async def main() -> None:
 
     async with aiofiles.open("logging.json", "r", encoding="utf-8") as f:
         config: Any = json.loads(await f.read())
+        if "--debug" in sys.argv:
+            config["loggers"]["App"]["handlers"] = ["app_file", "console_debug"]
+            config["handlers"]["console_debug"] = {"class": "logging.StreamHandler", "level": "DEBUG", "formatter": "console"}
     logging.config.dictConfig(config)
+
 
     bot = MultipurposeBot()
 
