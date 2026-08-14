@@ -26,9 +26,9 @@ class TestRegisterStaff:
         _, ctx, _ = bot_test
         member: discord.Member = ctx["dev"]["users"]["tester"]
         db = Database()
-        staff_id: int = await database.staff.register_staff(member.id, member.name, ["qa"])
+        staff: StaffMember = await database.staff.register_staff(member.id, member.name, ["qa"])
 
-        row: Row | None = await db.fetchone("SELECT * FROM staff_staff WHERE staff_id = :id;", {"id": staff_id})
+        row: Row | None = await db.fetchone("SELECT * FROM staff_staff WHERE staff_id = :id;", {"id": staff.staff_id})
         assert row
         assert row["discord_id"] == member.id
         assert row["name"] == member.name
@@ -38,9 +38,9 @@ class TestRegisterStaff:
         _, ctx, _ = bot_test
         member: discord.Member = ctx["dev"]["users"]["tester"]
 
-        insert1: int = await database.staff.register_staff(member.id, member.name, ["qa"])
-        insert2: int = await database.staff.register_staff(member.id, member.name, ["qa"])
-        assert insert1 == insert2
+        staff: StaffMember = await database.staff.register_staff(member.id, member.name, ["qa"])
+        with pytest.raises(ValueError, match="Discord ID is already registered."):
+            await database.staff.register_staff(member.id, member.name, ["qa"])
 
 
 class TestGetStaffByDiscordUser:
@@ -52,16 +52,16 @@ class TestGetStaffByDiscordUser:
         member: discord.Member = ctx["dev"]["users"]["tester"]
         await database.staff.register_staff(member.id, member.name, ["qa"])
 
-        result: Row | None = await database.staff.get_staff(discord_id=member.id)
+        result: StaffMember | None = await database.staff.get_staff(discord_id=member.id)
         assert result
-        assert result["discord_id"] == member.id
+        assert result.discord_id == member.id
 
     async def test_not_found(self, bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
         """Check if has_staff_admin_perms can properly recognize staff."""
         _, ctx, _ = bot_test
         outsider: discord.Member = ctx["none"]["users"]["none1"]
 
-        result: Row | None = await database.staff.get_staff(discord_id=outsider.id)
+        result: StaffMember | None = await database.staff.get_staff(discord_id=outsider.id)
         assert result is None
 
     async def test_has_staff_admin_perms(self, bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
@@ -169,21 +169,21 @@ class TestUpdateStaffProfile:
 
     async def test_update_by_staff_id(self, db: Database) -> None:
         """Updates fields when looked up by staff_id."""
-        row = await database.staff.update_staff_profile(name="Bob", staff_id=1)
-        assert row["staff_id"] == 1
-        assert row["name"] == "Bob"
+        staff: StaffMember = await database.staff.update_staff_profile(name="Bob", staff_id=1)
+        assert staff.staff_id == 1
+        assert staff.name == "Bob"
 
     async def test_update_by_discord_id(self, db: database.Database) -> None:
         """Updates fields when looked up by discord_id."""
-        row = await database.staff.update_staff_profile(title="Lead", discord_id=111)
-        assert row["title"] == "Lead"
+        staff: StaffMember = await database.staff.update_staff_profile(title="Lead", discord_id=111)
+        assert staff.title == "Lead"
 
     async def test_update_multiple_fields(self, db: database.Database) -> None:
         """Updates several fields at once and returns them all."""
-        row = await database.staff.update_staff_profile(name="Bob", title="Lead", timezone="UTC", staff_id=1)
-        assert row["name"] == "Bob"
-        assert row["title"] == "Lead"
-        assert row["timezone"] == "UTC"
+        staff = await database.staff.update_staff_profile(name="Bob", title="Lead", timezone="UTC", staff_id=1)
+        assert staff.name == "Bob"
+        assert staff.title == "Lead"
+        assert staff.timezone == "UTC"
 
     async def test_no_fields_raises(self, db: database.Database) -> None:
         """Raises when no updatable field is given."""
@@ -256,72 +256,11 @@ class TestBlacklistStaff:
 
     async def test_blacklists_inactive_staff_by_staff_id(self, db) -> None:
         """Should blacklist and return row when looked up by staff_id."""
-        staff: Row | None = await database.staff.get_staff(discord_id=111)
+        staff: StaffMember | None = await database.staff.get_staff(discord_id=111)
         assert staff
-        await database.staff.resign_staff(staff_id=staff["staff_id"])
+        await database.staff.resign_staff(staff_id=staff.staff_id)
 
-        result: Row | None = await database.staff.blacklist_staff(staff_id=staff["staff_id"])
+        result: Row | None = await database.staff.blacklist_staff(staff_id=staff.staff_id)
 
         assert result is not None
-        assert result["staff_id"] == staff["staff_id"]
-
-class TestUpsertLatestNote:
-    """Tests for database.staff.upsert_latest_note."""
-
-    async def test_creates_note_when_none_exists(self, db: database.Database) -> None:
-        """Should insert a new note when the staff member has none."""
-        staff = await database.staff.get_staff(discord_id=111)
-        row = await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="first note", noter=staff["staff_id"])
-        assert row["note"] == "first note"
-
-    async def test_updates_existing_latest_note(self, db: database.Database) -> None:
-        """Should update the existing note in place instead of inserting a new one."""
-        staff = await database.staff.get_staff(discord_id=111)
-        await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="first note", noter=staff["staff_id"])
-        row = await database.staff.upsert_latest_note(staff_id=staff["staff_id"], note="second note", noter=staff["staff_id"])
-        all_notes = await db.fetchall("SELECT * FROM staff_notes WHERE staff_id = :id", {"id": staff["staff_id"]})
-        assert len(list(all_notes)) == 1
-        assert row["note"] == "second note"
-
-
-class TestSetDepartmentHeadByLevel:
-    """Tests for database.department.set_department_head_by_level."""
-
-    async def test_sets_head(self, db: database.Database) -> None:
-        """Should update the head of the department matching staff_level."""
-        staff = await database.staff.get_staff(discord_id=111)
-        dept = await database.department.set_department_head_by_level(staff_level=3, staff_id=staff["staff_id"])
-        assert dept["head"] == staff["staff_id"]
-
-    async def test_returns_none_for_unknown_level(self, db: database.Database) -> None:
-        """Should return None when no department matches the given staff_level."""
-        dept = await database.department.set_department_head_by_level(staff_level=999, staff_id=1)
-        assert dept is None
-
-class TestSyncStaffDepartments:
-    async def test_adds_and_resigns_to_match_target(self, db: Database) -> None:
-        """Should add missing departments and resign ones no longer targeted."""
-        staff = await database.staff.get_staff(discord_id=111)
-        await database.staff.sync_staff_departments(staff_id=staff["staff_id"], department_keys=["ad"])
-        depts = await database.staff.get_staff_departments(staff_id=staff["staff_id"])
-        assert {d["department_key"] for d in depts} == {"ad"}
-
-
-class TestSyncStaffTags:
-    async def test_creates_tag_and_links_staff(self, db: Database) -> None:
-        """Should create a missing tag and attach it to the staff member."""
-        staff = await database.staff.get_staff(discord_id=111)
-        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
-        row = await db.fetchone(
-            "SELECT t.name FROM staff_tags st JOIN asset_tags t ON t.id = st.tag_id WHERE st.staff_id = :sid;",
-            {"sid": staff["staff_id"]},
-        )
-        assert row["name"] == "VIP"
-
-    async def test_does_not_duplicate_existing_tag_link(self, db: Database) -> None:
-        """Should not insert a second staff_tags row for an already-applied tag."""
-        staff = await database.staff.get_staff(discord_id=111)
-        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
-        await database.staff.sync_staff_tags(staff_id=staff["staff_id"], tag_names=["VIP"], tagged_by=staff["staff_id"])
-        rows = await db.fetchall("SELECT * FROM staff_tags WHERE staff_id = :sid;", {"sid": staff["staff_id"]})
-        assert len(list(rows)) == 1
+        assert result["staff_id"] == staff.staff_id

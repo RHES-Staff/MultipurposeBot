@@ -2,80 +2,73 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from dataclasses import dataclass
+from typing import Annotated, Any, ClassVar
 
-import database
+from aiosqlite import Row
+from fastapi import APIRouter, Depends
+
+from database import department, staff
+from database.cookies import get_current_user
+from database.models import Department, StaffMember
 
 router = APIRouter(prefix="/board")
 
 
-class TaskSchema(BaseModel):
-    """Schema for one task assigned to a staff member."""
-
-    id: int
-    title: str
-    done: bool
-
-
-class StaffSchema(BaseModel):
-    """Schema for one staff member on the board."""
-
-    id: int
-    discord_id: str
+@dataclass
+class DepartmentResponse:
+    key: str
     name: str
-    status: str = "active"
-    tags: list[str] = []
-    notes: str | None = ""
-    tasks: list[TaskSchema] = []
+    head: int
 
 
-class DepartmentSchema(BaseModel):
-    """Schema for one department on the board."""
-
+@dataclass
+class NotesResponse:
     id: int
+    staff_id: int
+    author_id: int
+    text: str
+
+
+@dataclass
+class StaffResponse:
+    staff_id: int
+    discord_id: str  # str due to js overflow
     name: str
-    slug: str
-    sort_order: int
+    is_active: bool
+    tags: list[str]
+    notesList: list[NotesResponse]  # noqa: N815
+    tasks: ClassVar[list] = []
+    title: str | None = None
+    timezone: str | None = None
 
 
-class MembershipSchema(BaseModel):
-    """Schema linking a staff member to a department."""
-
+@dataclass
+class StaffMembershipsResponse:
     staff_id: int
-    department_id: int
+    department_key: str
+    is_active: str
 
 
-class HeadSchema(BaseModel):
-    """Schema linking a department to its head staff member."""
-
-    staff_id: int
-    department_id: int
-
-
-class BoardResponse(BaseModel):
-    """Schema for the full /api/board snapshot."""
-
-    nextStaffId: int
-    nextTaskId: int
-    staff: list[StaffSchema]
-    departments: list[DepartmentSchema]
-    memberships: list[MembershipSchema]
-    heads: list[HeadSchema]
+@dataclass
+class BoardResponse:
+    departments: list[DepartmentResponse]
+    staff: list[StaffResponse]
+    memberships: list[StaffMembershipsResponse]
 
 
-@router.get("", response_model=BoardResponse)
-async def get_board() -> BoardResponse:
+@router.get("")
+async def get_board(user: Annotated[Row, Depends(get_current_user)]):
     """Get a full snapshot of staff, departments, and their relationships.
 
     Returns:
         BoardResponse: The board state needed to hydrate the frontend.
     """
+    departments: list[Department] = await department.get_all_departments()
+    staffs: list[StaffMember] = await staff.get_all_staff()
+    memberships: list[dict[str, Any]] = await department.get_all_department_staffs()
     return BoardResponse(
-        nextStaffId=await database.board.get_next_staff_id(),
-        nextTaskId=1,
-        staff=await database.board.get_board_staff(),
-        departments=await database.board.get_board_departments(),
-        memberships=await database.board.get_board_memberships(),
-        heads=await database.board.get_board_heads(),
+        departments=[DepartmentResponse(dept.key, dept.name, dept.head.staff_id) for dept in departments],
+        staff=[StaffResponse(staff.staff_id, str(staff.discord_id), staff.name, bool(staff.is_active), [], []) for staff in staffs],
+        memberships=[StaffMembershipsResponse(member["staff_id"], member["department_key"], member["is_active"]) for member in memberships],
     )

@@ -1,4 +1,5 @@
 """Cookies Management for API."""
+from database.models import StaffMember
 
 import os
 from typing import Any
@@ -23,7 +24,7 @@ REFRESH_COOKIE = "refresh_cookie"
 REFRESH_MAX_AGE: int = 60 * 60 * 24 * 30  # 30 days, Discord refresh tokens don't expose a ttl
 
 
-def create_session_cookie(staff: Row) -> str:
+def create_session_cookie(staff: StaffMember) -> str:
     """Creates a serialized session cookie payload from staff data.
 
     Args:
@@ -32,10 +33,10 @@ def create_session_cookie(staff: Row) -> str:
     Returns:
         str: Serialized JSON payload containing staff ID, Discord ID, and name.
     """
-    return serializer.dumps({"discord_id": staff["discord_id"], "staff_id": staff["staff_id"], "name": staff["name"]})
+    return serializer.dumps({"discord_id": staff.discord_id, "staff_id": staff.staff_id, "name": staff.name})
 
 
-def set_auth_cookies(resp: Response, tokens: dict, staff: Row) -> None:
+def set_auth_cookies(resp: Response, tokens: dict, staff: StaffMember) -> None:
     """Sets secure authentication cookies on the response object.
 
     Args:
@@ -88,7 +89,7 @@ async def refresh_access_token(refresh_token: str) -> dict:
         return resp.json()
 
 
-async def get_current_user(request: Request, response: Response) -> Row:
+async def get_current_user(request: Request, response: Response) -> StaffMember:
     """Validates the session cookie and gets the user record.
 
     Args:
@@ -111,7 +112,7 @@ async def get_current_user(request: Request, response: Response) -> Row:
         clear_auth_cookies(response)
         raise HTTPException(401, "Session expired")
 
-    user: Row | None = await get_staff(staff_id=data["staff_id"])
+    user: StaffMember | None = await get_staff(staff_id=data["staff_id"])
     if user is None:
         raise HTTPException(403, "Not allowed to access.")
     return user

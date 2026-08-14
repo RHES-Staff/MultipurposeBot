@@ -72,8 +72,12 @@ class Database:
     async def execute(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> aiosqlite.Cursor:
         """Execute the given query."""
         start: int | float = time.perf_counter()
-        cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
-        await self.conn.commit()
+        try:
+            cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
+            await self.conn.commit()
+        except:
+            log.error("Query returned an error.", extra={"sql": " ".join(sql.split()), "params": params})
+            raise
         elapsed: int | float = time.perf_counter() - start
         log.debug("Query executed.", extra={"sql": " ".join(sql.split()), "params": params, "exec_time": elapsed})
         return cur
@@ -81,8 +85,12 @@ class Database:
     async def fetchone(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> aiosqlite.Row | None:
         """Execute the given query and get 1 result back."""
         start: int | float = time.perf_counter()
-        cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
-        result: aiosqlite.Row | None = await cur.fetchone()
+        try:
+            cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
+            result: aiosqlite.Row | None = await cur.fetchone()
+        except:
+            log.error("Query returned an error.", extra={"sql": " ".join(sql.split()), "params": params})
+            raise
         elapsed: int | float = time.perf_counter() - start
         log.debug("Query executed.", extra={"sql": " ".join(sql.split()), "params": params, "exec_time": elapsed})
         return result
@@ -90,8 +98,12 @@ class Database:
     async def fetchall(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> Iterable[aiosqlite.Row]:
         """Execute the given query and get all results back."""
         start: int | float = time.perf_counter()
-        cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
-        result: Iterable[aiosqlite.Row] = await cur.fetchall()
+        try:
+            cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
+            result: Iterable[aiosqlite.Row] = await cur.fetchall()
+        except:
+            log.error("Query returned an error.", extra={"sql": " ".join(sql.split()), "params": params})
+            raise
         elapsed: int | float = time.perf_counter() - start
         log.debug("Query executed.", extra={"sql": " ".join(sql.split()), "params": params, "exec_time": elapsed})
         return result

@@ -12,6 +12,7 @@ from discord.ext import commands
 
 import database
 from database.department import set_department_config
+from database.models import Department
 from features.views.leaderboard import LogsEmbed, SingleTesterStatEmbed, TesterStatEmbed
 
 if TYPE_CHECKING:
@@ -37,12 +38,12 @@ class Development(commands.Cog):
     head_of_tester_role: discord.Role
     developer_role: discord.Role
 
+    _config: dict[str, Any]
+    _servers: list[int]
+
     def __init__(self, bot: MultipurposeBot) -> None:
         Development.instance = self
         self.bot: MultipurposeBot = bot
-
-        for guild in self.bot.departments["dev"]["servers"]:
-            self.bot.tree.add_command(self.stats, guild=guild)
 
     @property
     def leaderboard_message(self) -> discord.Message:  # noqa: D102
@@ -60,7 +61,12 @@ class Development(commands.Cog):
 
     async def cog_load(self) -> None:
         """Configure internal variables needed by the cog."""
-        config: dict[str, Any] = self.bot.departments["dev"]["configuration"]
+        devdept: Department | None = await database.department.get_department("dev")
+        if not devdept:
+            raise ValueError("Development Configuration cannot be found.")
+        config: dict[str, Any] = devdept.configuration
+        self._config: dict[str, Any] = config
+        self._servers: list[discord.Object] = [discord.Object(id=id) for id in devdept.servers]
 
         testing_guild: discord.Guild | None = await self.bot.cached_fetch_guild(config["testing_guild"])
         if not isinstance(testing_guild, discord.Guild):
@@ -101,6 +107,9 @@ class Development(commands.Cog):
             raise TypeError("Configured Logging Channel Type is not supported")
         self.logging_channel: discord.TextChannel = logging_channel
 
+        for guild in devdept.servers:
+            self.bot.tree.add_command(self.stats, guild=discord.Object(guild))
+
     @discord.app_commands.command(name="stats", description="Check your Stats for Bug Reports.")
     async def stats(self, interaction: discord.Interaction) -> None:
         """Command Listener for /stats."""
@@ -140,7 +149,7 @@ class Development(commands.Cog):
 
     async def refresh_leaderboard(self) -> None:
         """Helper function to automatically refresh Leaderboard View."""
-        message_id: int = self.bot.departments["dev"]["configuration"]["leaderboard_message"]
+        message_id: int = self._config["leaderboard_message"]
         if not hasattr(self, "_leaderboard_channel"):
             try:
                 leaderboard_message: discord.Message | None = await self.bot.cached_fetch_message(self.leaderboard_channel, message_id)
@@ -166,7 +175,7 @@ class Development(commands.Cog):
             member: The Discord member to check and, if eligible, register.
         """
         # TODO: this should be an overall watcher, not a dev-specific function
-        if discord.Object(member.guild.id) in self.bot.departments["dev"]["servers"] and not await database.staff.get_staff(discord_id=member.id):
+        if discord.Object(member.guild.id) in self._servers and not await database.staff.get_staff(discord_id=member.id):
             # TODO: put this thing inside register_staff
             author_roles: list[discord.Role] = member.roles
             department_keys: list[str] = []

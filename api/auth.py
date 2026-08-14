@@ -3,7 +3,6 @@
 import os
 import secrets
 from dataclasses import dataclass
-from sqlite3 import Row
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -13,10 +12,11 @@ from fastapi.responses import RedirectResponse
 from itsdangerous import URLSafeSerializer
 
 from database.cookies import clear_auth_cookies, get_current_user, set_auth_cookies
+from database.models import StaffMember
 from database.staff import get_staff, has_staff_admin_perms
 
 load_dotenv()
-router = APIRouter()
+router = APIRouter(prefix="/auth")
 
 CLIENT_ID: str = os.environ["DISCORD_CLIENT_ID"]
 CLIENT_SECRET: str = os.environ["DISCORD_CLIENT_SECRET"]
@@ -24,7 +24,7 @@ REDIRECT_URI: str = os.environ["REDIRECT_URI"] + "/api/auth/discord/callback"
 serializer = URLSafeSerializer(os.environ["SECRET_KEY"])
 
 
-@router.get("/auth/discord/login")
+@router.get("/discord/login")
 def discord_login() -> RedirectResponse:
     """Redirect the user to the Discord OAuth2 authorization page.
 
@@ -49,7 +49,7 @@ def discord_login() -> RedirectResponse:
     return resp
 
 
-@router.get("/auth/discord/callback")
+@router.get("/discord/callback")
 async def discord_callback(request: Request, code: str, state: str) -> RedirectResponse:
     """Process the OAuth2 callback from Discord.
 
@@ -99,7 +99,7 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
         user_resp.raise_for_status()
         discord_user: dict[str, Any] = user_resp.json()
 
-    user: Row | None = await get_staff(discord_id=discord_user["id"])
+    user: StaffMember | None = await get_staff(discord_id=discord_user["id"])
     if user is None:
         raise HTTPException(403, "Not allowed to access.")
 
@@ -124,8 +124,8 @@ class AuthResponse:
     role: Literal["admin", "user"]
 
 
-@router.get("/auth/me")
-async def check_if_authed(user: Annotated[Row, Depends(get_current_user)]) -> AuthResponse:
+@router.get("/me")
+async def check_if_authed(user: Annotated[StaffMember, Depends(get_current_user)]) -> AuthResponse:
     """Retrieves the authentication status of the current user.
 
     Args:
@@ -134,12 +134,10 @@ async def check_if_authed(user: Annotated[Row, Depends(get_current_user)]) -> Au
     Returns:
         AuthResponse: The user details and the assigned access role.
     """
-    return AuthResponse(
-        discord_id=str(user["discord_id"]), name=user["name"], role="admin" if await has_staff_admin_perms(staff_id=user["staff_id"]) else "user"
-    )
+    return AuthResponse(discord_id=str(user.discord_id), name=user.name, role="admin" if await has_staff_admin_perms(staff_id=user.staff_id) else "user")
 
 
-@router.post("/auth/logout", status_code=204)
+@router.post("/logout", status_code=204)
 async def logout(response: Response) -> None:
     """Log the current user out by clearing authentication cookies.
 

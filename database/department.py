@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, overload
+import sqlite3
+from typing import TYPE_CHECKING, Literal, overload
 
-import discord
 from aiosqlite.cursor import Cursor
 
-from database.models import Department, StaffMember, StaffSummary, row_to_dataclass
-
-from . import staff
+from . import models, staff
 from .core import Database
 
 if TYPE_CHECKING:
@@ -23,173 +21,116 @@ log: logging.Logger = logging.getLogger(f"App.{__name__}")
 
 # Create
 async def register_staff_to_department(staff_id: int, department_key: str) -> None:
-    """Add a staff member to a department if they are not already associated with it.
+    """Add a staff member to a department.
 
     Args:
-        staff_id: The internal `staff_staff.staff_id` ID of the staff member.
-        department_key: The internal `staff_department.key` of the department staff should join to.
+        staff_id: The unique identifier for the staff member.
+        department_key: The unique key for the target department.
+
+    Raises:
+        ValueError: If the staff ID or department key is invalid or not found.
     """
-    query = "INSERT OR IGNORE INTO staff_staff_department (staff_id, department_key) VALUES (:staff_id, :department_key);"
+    query = "INSERT OR IGNORE INTO staff_staff_department (staff_id, department_key) VALUES (:staff_id, :department_key) RETURNING *;"
     db = Database()
-    await db.execute(query, {"staff_id": staff_id, "department_key": department_key})
+    try:
+        await db.fetchone(query, {"staff_id": staff_id, "department_key": department_key})
+    except sqlite3.OperationalError:
+        raise ValueError("Staff ID or Department Key not found.")
 
 
 # Read
-async def get_all_departments() -> dict[str, Any]:
-    """Retrieve all department records from the database.
+async def get_department(department_key: str) -> models.Department | None:
+    """Fetch a department record by its unique key.
 
-    Parse the configuration and servers fields for each department.
+    Args:
+        department_key: The unique key of the department to retrieve.
 
     Returns:
-        dict[str, Any]: A dictionary that maps department keys to their processed details. Each entry contains 'name', the parsed 'configuration' dict, and 'servers' as a list of `discord.Object` instances.
+        The matching Department instance if found, or None.
     """
-    department_query = "SELECT key, name, json(configuration) AS configuration, json(servers) AS servers FROM staff_department ORDER BY staff_level ASC;"
+    department_query = """
+    SELECT s.staff_id as head_id, s.name as head_name, s.discord_id as head_discord_id, json(d.configuration) AS configuration, json(d.servers) AS servers, d.*
+    FROM staff_department d 
+    JOIN staff_staff s
+        ON d.head = s.staff_id
+    WHERE d.key = :key
+    """
+
     db = Database()
-    results: Iterable[Row] = await db.fetchall(department_query)
-    departments: dict[str, Any] = {}
-    for department in results:
-        departments[department["key"]] = {
-            "name": department["name"],
-            "configuration": json.loads(department["configuration"]),
-            "servers": [discord.Object(id=guild_id) for guild_id in json.loads(department["servers"])],
-        }
-    return departments
+    return await models.Department.from_row(await db.fetchone(department_query, {"key": department_key}))
 
 
-async def get_all_departments_with_staff() -> list[Department]:
-    """Get all departments with a lightweight list of their active staff.
-
-    Each staff member in a department's `staffs` list, and the department's `head`,
-    only have `staff_id` and `name` populated.
+async def get_all_departments() -> list[models.Department]:
+    """Fetch all department records ordered by staff level.
 
     Returns:
-        list[Department]: All departments, each with lightweight `StaffSummary` placeholders.
+        A list of all Department instances.
     """
-    sql = """
-        SELECT d.key, d.name, d.created_at, d.edited_at,
-            json(d.configuration) AS configuration, json(d.servers) AS servers,
-            d.head AS head_id, h.name AS head_name, h.discord_id as head_discord_id,
-            s.staff_id AS staff_staff_id, s.name AS staff_name, s.discord_id as discord_id
-        FROM staff_department d
-        JOIN staff_staff h ON h.staff_id = d.head
-        LEFT JOIN staff_staff_department sd
-            ON sd.department_key = d.key AND sd.is_active = 1
-        LEFT JOIN staff_staff s
-            ON s.staff_id = sd.staff_id
-        ORDER BY d.staff_level
+    department_query = """
+    SELECT s.staff_id as head_id, s.name as head_name, s.discord_id as head_discord_id, json(d.configuration) AS configuration, json(d.servers) AS servers, d.*
+    FROM staff_department d 
+    JOIN staff_staff s
+        ON d.head = s.staff_id
+    ORDER BY staff_level ASC;
     """
     db = Database()
-    rows: Iterable[Row] = await db.fetchall(sql)
-
-    departments: dict[str, Department] = {}
-    for row in rows:
-        dept: Department | None = departments.get(row["key"])
-        if dept is None:
-            dept = Department.from_row(row)
-            departments[row["key"]] = dept
-        if row["staff_staff_id"] is not None:
-            dept.staffs.append(StaffSummary(staff_id=row["staff_staff_id"], name=row["staff_name"], discord_id=str(row["discord_id"])))
-
-    return list(departments.values())
+    return [await models.Department.from_row(dept) for dept in await db.fetchall(department_query)]
 
 
-async def load_staff_with_departments(discord_id: int) -> StaffMember | None:
-    """Load a StaffMember and its active departments.
+@overload
+async def get_department_staffs(department_key: str, *, shallow: Literal[True] = True) -> list[models.StaffSummary]: ...
+@overload
+async def get_department_staffs(department_key: str, *, shallow: Literal[False] = False) -> list[models.StaffMember]: ...
+async def get_department_staffs(department_key: str, *, shallow: Literal[True, False] = False):
+    """Fetch active staff members registered in a department.
 
     Args:
-        discord_id: The Discord user ID of the staff member to load.
+        department_key: The unique key of the department to query.
+        shallow: Whether to return summarized staff records instead of full
+            models.
 
     Returns:
-        The populated StaffMember with `departments` filled in, or None if not found.
+        A list of staff summary or full staff member models depending on the shallow flag.
     """
-    row: Row | None = await Database().fetchone("SELECT * FROM staff_staff WHERE discord_id = :d", {"d": discord_id})
-    if row is None:
-        return None
-
-    staff: StaffMember = row_to_dataclass(StaffMember, row)
-
-    dept_rows: Iterable[Row] = await Database().fetchall(
-        "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
-        "d.key, d.name, h.staff_id as head_id, h.name as head_name, h.discord_id as head_discord_id, d.created_at, d.edited_at "
-        "FROM staff_department d "
-        "JOIN staff_staff_department sd ON sd.department_key = d.key "
-        "JOIN staff_staff h ON h.staff_id = d.head "
-        "WHERE sd.staff_id = :sid AND sd.is_active = 1 ",
-        {"sid": staff.staff_id},
-    )
-    dept_cache: dict[str, Department] = {}
-    for drow in dept_rows:
-        key: str = drow["key"]
-        if key not in dept_cache:
-            dept_cache[key] = Department.from_row(drow)
-        staff.departments.append(dept_cache[key])
-
-    return staff
-
-
-async def load_all_staff_with_departments(discord_ids: Iterable[int]) -> list[StaffMember]:
-    """Load several StaffMembers with their active departments, sharing Department instances.
-
-    Args:
-        discord_ids: The Discord user IDs of the staff members to load.
-
-    Returns:
-        list[StaffMember]: The populated staff members, skipping any IDs with no match.
-    """
-    dept_cache: dict[str, Department] = {}
-    staffs: list[StaffMember] = []
-    for discord_id in discord_ids:
-        row: Row | None = await Database().fetchone("SELECT * FROM staff_staff WHERE discord_id = :d", {"d": discord_id})
-        if row is None:
-            continue
-        member: StaffMember = row_to_dataclass(StaffMember, row)
-
-        dept_rows: Iterable[Row] = await Database().fetchall(
-            "SELECT json(d.configuration) as configuration, json(d.servers) as servers, "
-            "d.key, d.name, h.staff_id as head_id, h.name as head_name, h.discord_id as head_discord_id, d.created_at, d.edited_at "
-            "FROM staff_department d "
-            "JOIN staff_staff_department sd ON sd.department_key = d.key "
-            "JOIN staff_staff h ON h.staff_id = d.head "
-            "WHERE sd.staff_id = :sid AND sd.is_active = 1 ",
-            {"sid": member.staff_id},
-        )
-        for drow in dept_rows:
-            key: str = drow["key"]
-            if key not in dept_cache:
-                dept_cache[key] = Department.from_row(drow)
-            member.departments.append(dept_cache[key])
-
-        staffs.append(member)
-
-    return staffs
-
-
-async def get_department_staff(department_key: str) -> Iterable[Row]:
-    """Get all active staff members registered in a department.
-
-    Args:
-        department_key: The internal `staff_department.key` to look up.
-
-    Returns:
-        list[aiosqlite.Row]: A list of `staff_staff` rows belonging to the department.
-    """
-    query = """
-        SELECT s.* FROM staff_staff s
+    if shallow:
+        values = "s.staff_id, s.name, s.discord_id"
+    else:
+        values = "s.*"
+    query = f"""
+        SELECT {values} FROM staff_staff s
         JOIN staff_staff_department sd ON sd.staff_id = s.staff_id
         WHERE sd.department_key = :department_key AND sd.is_active = 1;
         """
+
     db = Database()
-    return await db.fetchall(query, {"department_key": department_key})
+    result: Iterable[Row] = await db.fetchall(query, {"department_key": department_key})
+    if shallow:
+        return [models.StaffSummary.from_row(staff) for staff in result]
+    else:
+        return [models.StaffMember.from_row(staff) for staff in result]
+
+
+async def get_all_department_staffs() -> list[dict[str, int | bool | str]]:
+    """Fetch all active staff and department association records.
+
+    Returns:
+        A list of dictionaries containing raw association database fields.
+    """
+    query: str = "SELECT * FROM staff_staff_department WHERE is_active = 1;"
+
+    db = Database()
+    result: Iterable[Row] = await db.fetchall(query)
+    return [dict(row) for row in result]
 
 
 # Update
 async def set_department_server(department_key: str, server_id: int, *, add: bool) -> None:
-    """Add or remove a server from a department's registered servers list.
+    """Add or remove a server identifier from a department configuration.
 
     Args:
-        department_key: The internal `staff_department.key` of the department to update.
-        server_id: The Discord server (guild) ID to add or remove.
-        add: If True, adds the server; if False, removes it.
+        department_key: The unique key of the department to update.
+        server_id: The Discord server identifier to manage.
+        add: Whether to add the server ID if True, or remove it if False.
     """
     db = Database()
     if add:
@@ -200,17 +141,15 @@ async def set_department_server(department_key: str, server_id: int, *, add: boo
 
 
 async def set_department_config(department_key: str, key: str, value: str) -> bool:
-    """Set a key/value pair in a department's configuration JSON.
-
-    The function first tries to parse `value` as JSON. Numbers, booleans, and null values keep their native JSON type. If the parse fails, the function stores `value` as a plain string.
+    """Set a key and value pair in a department configuration JSON.
 
     Args:
-        department_key: The internal `staff_department.key` of the department to update.
-        key: The configuration key to set. Only letters, numbers, `_`, and `-` are allowed.
-        value: The value to store under the given key.
+        department_key: The unique key of the department to update.
+        key: The configuration setting key to update.
+        value: The string value or JSON payload string to assign.
 
     Returns:
-        bool: True if the function updated a department. False if no department matched `department_key`.
+        True if the department record was updated, or False if not found.
     """
     db = Database()
     try:
@@ -228,81 +167,54 @@ async def set_department_config(department_key: str, key: str, value: str) -> bo
     return result.rowcount != 0
 
 
-async def set_department_head_by_level(staff_level: int, staff_id: int) -> Row | None:
-    """Set the head of a department, looked up by its staff_level.
+async def set_department_head(department_key: str, staff_id: int) -> None:
+    """Assign a new staff head to a department.
 
     Args:
-        staff_level: The `staff_department.staff_level` identifying the department.
-        staff_id: The `staff_staff.staff_id` of the staff member to assign as head.
+        department_key: The unique key of the department to update.
+        staff_id: The unique identifier of the staff member.
 
-    Returns:
-        aiosqlite.Row | None: The updated `staff_department` row, or None if no department matched.
+    Raises:
+        ValueError: If the department or staff member does not exist.
     """
+    # TODO: dpet. heds/bod must automatically join dept. heads/bod dept if not yet joined
+    query = "UPDATE staff_department SET head = :id WHERE key = :department RETURNING *"
     db = Database()
-    await db.execute(
-        "UPDATE staff_department SET head = :staff_id WHERE staff_level = :staff_level",
-        {"staff_id": staff_id, "staff_level": staff_level},
-    )
-    return await db.fetchone(
-        "SELECT * FROM staff_department WHERE staff_level = :staff_level",
-        {"staff_level": staff_level},
-    )
-
-
-async def get_department_keys_by_levels(staff_levels: Iterable[int]) -> list[str]:
-    """Resolve department staff_level identifiers to their keys.
-
-    Args:
-        staff_levels: The staff_level values to resolve.
-
-    Returns:
-        list[str]: The key of each staff_department row matching a given
-            staff_level. Levels with no match are skipped.
-    """
-    levels: list[str] = [str(i) for i in staff_levels]
-    if not levels:
-        return []
-    placeholders: str = ",".join("?" * len(levels))
-    rows: Iterable[Row] = await Database().fetchall(
-        f"SELECT key FROM staff_department WHERE staff_level IN ({placeholders});",
-        tuple(levels),
-    )
-    return [row["key"] for row in rows]
+    res: Row | None = await db.fetchone(query, {"id": staff_id, "department": department_key})
+    if not res:
+        raise ValueError("One of the input is invalid.")
 
 
 # delete
 @overload
-async def resign_staff_department(*, staff_id: int, department_key: str) -> None: ...
+async def resign_staff_department(*, staff_id: int, department_key: str) -> models.StaffMember: ...
 @overload
-async def resign_staff_department(*, discord_id: int, department_key: str) -> None: ...
-async def resign_staff_department(*, staff_id: int | None = None, discord_id: int | None = None, department_key: str) -> None:
-    """Set a staff member's membership in a single department to inactive.
+async def resign_staff_department(*, discord_id: int, department_key: str) -> models.StaffMember: ...
+async def resign_staff_department(*, staff_id: int | None = None, discord_id: int | None = None, department_key: str) -> models.StaffMember:
+    """Deactivate a staff member association with a department.
 
     Args:
-        staff_id: Internal `staff_staff.staff_id` to look up. Mutually exclusive with `discord_id`.
-        discord_id: Discord user ID to look up. Mutually exclusive with `staff_id`.
-        department_key: Internal `staff_department.key` to look up.
+        staff_id: The unique staff identifier. Mutually exclusive with discord_id.
+        discord_id: The unique Discord account identifier. Mutually exclusive with staff_id.
+        department_key: The unique key of the department to leave.
 
     Returns:
-        The matching `staff_staff` row, or `None` if no staff member is found.
+        The updated StaffMember instance.
 
     Raises:
-        ValueError: If neither `staff_id` nor `discord_id` is provided, or if both are provided.
+        ValueError: If both or neither identifiers are provided, or if the deactivation query fails.
     """
     if (staff_id is None) == (discord_id is None):
         raise ValueError("Only pass one parameter.")
-
-    if staff_id is not None:
-        staff_object: Row | None = await staff.get_staff(staff_id=staff_id)
-    elif discord_id is not None:
-        staff_object: Row | None = await staff.get_staff(discord_id=discord_id)
-    if staff_object is None:
-        raise ValueError("Staff not found.")
-
+    query = f"""
+    UPDATE staff_staff_department 
+    SET is_active = 0 
+    WHERE staff_id = {":id" if staff_id else "(SELECT staff_id FROM staff_staff s WHERE discord_id=:id)"}
+        AND department_key = :dept
+    RETURNING 1;
+    """
     db = Database()
-    result = await db.execute(
-        "UPDATE staff_staff_department SET is_active = 0 WHERE staff_id = :id AND department_key = (SELECT key from staff_department WHERE staff_level = :dept);",
-        {"id": staff_object["staff_id"], "dept": department_key},
-    )
-    if result.rowcount == 0:
-        raise ValueError("Staff is not a member of that department.")
+    result: Row | None = await db.fetchone(query, {"id": staff_id or discord_id, "dept": department_key})
+    if not result:
+        raise ValueError("Something went wrong.")
+    return await staff.get_staff(staff_id=staff_id, discord_id=discord_id)  # ty: ignore[no-matching-overload]

@@ -21,6 +21,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
+from database.models import Department
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -182,7 +183,7 @@ class MultipurposeBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load all cogs and setup dependencies."""
-        self.departments: dict[str, Any] = await database.department.get_all_departments()
+        self.departments: list[Department] = await database.department.get_all_departments()
         self.start_worker()
         # load all discord handlers automatically
         cogs_dir: str = os.path.join(os.path.dirname(__file__), "features")
