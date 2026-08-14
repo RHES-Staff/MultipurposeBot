@@ -69,6 +69,16 @@ async def get_board(user: Annotated[Row, Depends(get_current_user)]):
     memberships: list[dict[str, Any]] = await department.get_all_department_staffs()
     return BoardResponse(
         departments=[DepartmentResponse(dept.key, dept.name, dept.head.staff_id) for dept in departments],
-        staff=[StaffResponse(staff.staff_id, str(staff.discord_id), staff.name, bool(staff.is_active), [], []) for staff in staffs],
+        staff=[
+            StaffResponse(
+                staff.staff_id,
+                str(staff.discord_id),
+                staff.name,
+                bool(staff.is_active),
+                [tag.name for tag in staff.tags],
+                [NotesResponse(note.id, note.staff_id, note.noter, note.note) for note in await staff.notes],
+            )
+            for staff in staffs
+        ],
         memberships=[StaffMembershipsResponse(member["staff_id"], member["department_key"], member["is_active"]) for member in memberships],
     )

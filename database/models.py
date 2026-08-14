@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, overload
 
-from . import department, staff
+from . import department, notes, staff, tags
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -43,6 +43,7 @@ class StaffMember:
     created_at: str
     edited_at: str
     departments: list[DepartmentSummary] = field(default_factory=list, repr=False, compare=False)
+    tags: list[TagSummary] = field(default_factory=list, repr=False, compare=False)
 
     @overload
     @classmethod
@@ -63,6 +64,7 @@ class StaffMember:
         if row is None:
             return None
         departments: list[DepartmentSummary] = await staff.get_staff_departments(staff_id=row["staff_id"], shallow=True)
+        staff_tags: list[TagSummary] = await tags.get_staff_tags(staff_id=row["staff_id"], shallow=True)
         return cls(
             staff_id=row["staff_id"],
             name=row["name"],
@@ -74,6 +76,7 @@ class StaffMember:
             created_at=row["created_at"],
             edited_at=row["edited_at"],
             departments=departments,
+            tags=staff_tags,
         )
 
     async def get_all_departments(self) -> list[Department]:
@@ -83,6 +86,15 @@ class StaffMember:
             A list of complete Department objects associated with this staff member.
         """
         return await staff.get_staff_departments(staff_id=self.staff_id, shallow=False)
+
+    @property
+    async def notes(self) -> list[Note]:
+        """Fetch full note data for the staff member.
+
+        Returns:
+            A list of all notes made for the staff member.
+        """
+        return await notes.get_notes(self.staff_id)
 
 
 @dataclass
@@ -224,6 +236,7 @@ class DepartmentSummary:
         """
         return await department.get_department(self.key)
 
+
 @dataclass
 class Note:
     """Store data for one row from the staff_notes table.
@@ -286,3 +299,39 @@ class Tag:
             A populated Tag instance.
         """
         return cls(**dict(row))
+
+
+@dataclass
+class TagSummary:
+    """Store summary data for a tag.
+
+    Attributes:
+        id: The unique ID of the tag.
+        name: The display name of the tag.
+        color: The hex color code of the tag.
+    """
+
+    id: int
+    name: str
+    color: str
+
+    @classmethod
+    def from_row(cls, row: aiosqlite.Row) -> TagSummary:
+        """Create a tag summary instance from a database row.
+
+        Args:
+            row: A database query result row containing id, name, and color fields.
+
+        Returns:
+            A populated TagSummary instance.
+        """
+        return cls(id=row["id"], name=row["name"], color=row["color"])
+
+    async def hydrate(self) -> Tag | None:
+        """Fetch full tag details using the summary ID.
+
+        Returns:
+            The complete Tag instance if found, or None.
+        """
+        staff_tags: list[Tag] = await tags.get_all_tags()
+        return next((t for t in staff_tags if t.id == self.id), None)

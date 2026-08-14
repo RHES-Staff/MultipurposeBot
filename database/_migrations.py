@@ -251,4 +251,7 @@ CREATE UNIQUE INDEX idx_staff_tags_unique_assignment ON staff_tags(staff_id, tag
 DELETE FROM staff_staff_department WHERE department_key='wiki';
 DELETE FROM staff_department WHERE key='wiki';
 """,
+    """
+CREATE UNIQUE INDEX idx_asset_tags_unique_name ON asset_tags(name);
+""",
 ]
