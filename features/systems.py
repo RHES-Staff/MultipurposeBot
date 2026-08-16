@@ -5,15 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Self
 
 import discord
-from aiosqlite import Row
 from discord import app_commands
 from discord.ext import commands
-from discord.guild import Guild
-from discord.role import Role
 from dotenv import load_dotenv
 
 import database
@@ -24,9 +20,15 @@ from database.staff import has_staff_admin_perms
 from features.views.feedback import FeedbackEmbed, FeedbackModal
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from aiosqlite import Row
+    from discord.guild import Guild
+    from discord.role import Role
+
     from main import MultipurposeBot
 
-log = logging.getLogger(f"App.{__name__}")
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 load_dotenv()
 
 
@@ -37,18 +39,18 @@ class System(commands.Cog):
 
     def __init__(self, bot: MultipurposeBot) -> None:
         System.instance = self
-        self.bot = bot
+        self.bot: MultipurposeBot = bot
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
+        """Configures this cog."""
         sysdept: Department | None = await database.department.get_department("sys")
         assert sysdept, "Systems Department is not found."
         guild_ids: list[int] = sysdept.servers
         config: dict[str, Any] = sysdept.configuration
 
         guild: Guild | None = await self.bot.cached_fetch_guild(guild_id=guild_ids[0])
-        if not guild:
+        if guild is None:
             raise ValueError("Guild from Database not found.")
-
         trainee: Role | None = guild.get_role(config["trainee"])
         if trainee is None:
             raise ValueError("Role from Database not found.")
@@ -140,6 +142,11 @@ class System(commands.Cog):
     @feedback.command(name="read", description="Read feedbacks given to you.")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     async def read_feedback(self, interaction: discord.Interaction) -> None:
+        """Show the calling staff member all feedback submitted to them.
+
+        Args:
+            interaction: The interaction that triggered this command.
+        """
         staff: StaffMember | None = await database.staff.get_staff(discord_id=interaction.user.id)
         if staff is None:
             await interaction.response.send_message("You are not registered as a staff. Contact Systems Department if this is wrong.")
@@ -156,6 +163,14 @@ class System(commands.Cog):
 
     # Database Operations
     async def get_all_feedback(self, discord_staff_id: int) -> Iterable[Row]:
+        """Get all feedback entries recorded for a staff member.
+
+        Args:
+            discord_staff_id: The Discord user ID of the staff trainee to look up.
+
+        Returns:
+            Iterable[Row]: Rows containing feedback text and the Discord IDs of the staff and noter.
+        """
         query = """
         SELECT f.feedback, s.discord_id as staff_discord_id, n.discord_id as noter_discord_id
         FROM department_systems_trainee_feedback f
@@ -168,6 +183,15 @@ class System(commands.Cog):
         return res
 
     async def get_feedback(self, discord_staff_id: int, feedback_staff_id: int) -> Row | None:
+        """Get a single feedback entry given to one staff member by another.
+
+        Args:
+            discord_staff_id: The Discord user ID of the staff member the feedback is about.
+            feedback_staff_id: The Discord user ID of the staff member who gave the feedback.
+
+        Returns:
+            Row | None: The matching feedback row, or None if not found.
+        """
         query = """
         SELECT f.feedback 
         FROM department_systems_trainee_feedback f
@@ -179,7 +203,17 @@ class System(commands.Cog):
         res: Row | None = await db.fetchone(query, {"discord_staff_id": discord_staff_id, "feedback_staff_id": feedback_staff_id})
         return res
 
-    async def store_feedback(self, discord_staff_id: int, feedback: str, discord_feedback_by: int):
+    async def store_feedback(self, discord_staff_id: int, feedback: str, discord_feedback_by: int) -> None:
+        """Upsert a feedback entry for a staff member.
+
+        Args:
+            discord_staff_id: The Discord user ID of the staff member the feedback is about.
+            feedback: The feedback text content.
+            discord_feedback_by: The Discord user ID of the staff member giving the feedback.
+
+        Raises:
+            ValueError: If the insert/update query does not return a row.
+        """
         query = """
         INSERT INTO
             department_systems_trainee_feedback (staff_id, feedback, feedback_by)
