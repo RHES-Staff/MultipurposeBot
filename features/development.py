@@ -124,8 +124,12 @@ class Development(commands.Cog):
         if message.author == self.bot.user:
             log.debug("message from bot")
             return
-        log.debug("message received.", extra={"message_obj": message})
+        if isinstance(message.author, discord.User):
+            log.debug("message from dms")
+            return
+
         await self.check_if_staff(message.author)
+        log.debug("message received.", extra={"message_obj": message})
         await self.validate_new_bug_report(message)
 
     @commands.Cog.listener()

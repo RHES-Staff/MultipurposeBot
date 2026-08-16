@@ -167,7 +167,7 @@ async def has_staff_admin_perms(*, staff_id: int | None = None, discord_id: int 
         OR EXISTS (
             SELECT 1 FROM staff_staff_department sd
             WHERE sd.staff_id = s.staff_id
-            AND sd.department_key = 'sys'
+            AND sd.department_key IN ('bod', 'sys')
             AND sd.is_active = 1
         )) AS has_perms
     FROM staff_staff s

@@ -10,6 +10,7 @@ import logging.config
 import os
 import pkgutil
 import sys
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,7 +53,7 @@ class ConsoleFormatter(logging.Formatter):
 class MultipurposeBot(commands.Bot):
     """Multipurpose Bot."""
 
-    departments: dict[str, Any]
+    departments: list[Department]
     _queue: asyncio.Queue[Coroutine] = asyncio.Queue()
     _worker_task: asyncio.Task | None = None
 
@@ -168,14 +169,14 @@ class MultipurposeBot(commands.Bot):
     async def reload_command(self) -> None:
         """Reloads Commands on the Command Tree."""
         self.tree.clear_commands(guild=None)
-        for server in {s for d in self.departments.values() for s in d["servers"]}:
-            self.tree.clear_commands(guild=server)
+        for server in chain.from_iterable([dept.servers for dept in self.departments]):
+            self.tree.clear_commands(guild=discord.Object(server))
 
         await self.reload_cogs()
 
         await self.tree.sync()
-        for server in {s for d in self.departments.values() for s in d["servers"]}:
-            await self.tree.sync(guild=server)
+        for server in chain.from_iterable([dept.servers for dept in self.departments]):
+            await self.tree.sync(guild=discord.Object(server))
 
     async def reload_cogs(self) -> None:
         """Reloads Cogs."""
@@ -194,7 +195,7 @@ class MultipurposeBot(commands.Bot):
             await self.load_extension(f"features.{filename[:-3]}")
             log.debug(f"Loaded Feature: {filename}")
 
-        await self.tree.sync()  # needed for dm commands, so that we don't get locked out if ever we need to call reload commands <3
+        # await self.tree.sync()  # needed for dm commands, so that we don't get locked out if ever we need to call reload commands <3
 
         log.info("Finished Bot Bootstrapping")
 
@@ -246,7 +247,6 @@ async def main() -> None:
             config["loggers"]["App"]["handlers"] = ["app_file", "console_debug"]
             config["handlers"]["console_debug"] = {"class": "logging.StreamHandler", "level": "DEBUG", "formatter": "console"}
     logging.config.dictConfig(config)
-
 
     bot = MultipurposeBot()
 

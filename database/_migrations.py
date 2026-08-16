@@ -254,4 +254,27 @@ DELETE FROM staff_department WHERE key='wiki';
     """
 CREATE UNIQUE INDEX idx_asset_tags_unique_name ON asset_tags(name);
 """,
+"""
+CREATE TABLE department_systems_trainee_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    feedback TEXT NOT NULL,
+    feedback_by INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (feedback_by) REFERENCES staff_staff (staff_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX idx_dstf_staff_feedback_by
+    ON department_systems_trainee_feedback (staff_id, feedback_by);
+CREATE TRIGGER department_systems_trainee_feedback_edited_at
+AFTER UPDATE ON department_systems_trainee_feedback
+FOR EACH ROW WHEN NEW.edited_at IS OLD.edited_at
+BEGIN
+  UPDATE department_systems_trainee_feedback SET edited_at = CURRENT_TIMESTAMP WHERE staff_id = OLD.staff_id;
+END;
+""",
+
 ]

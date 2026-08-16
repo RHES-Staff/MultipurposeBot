@@ -1,14 +1,14 @@
 """Cookies Management for API."""
-from database.models import StaffMember
 
 import os
 from typing import Any
 
 import httpx
-from aiosqlite import Row
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request, Response
 from itsdangerous import URLSafeSerializer
+
+from database.models import StaffMember
 
 from .staff import get_staff
 

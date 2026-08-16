@@ -141,6 +141,8 @@ class Database:
             start: int | float = time.perf_counter()
             cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
             result: aiosqlite.Row | None = await cur.fetchone()
+            if self._txn_depth == 0:
+                await self.conn.commit()
             elapsed: int | float = time.perf_counter() - start
             log.debug("Query executed.", extra={"sql": " ".join(sql.split()), "params": params, "exec_time": elapsed, "in_transaction": self._txn_depth > 0})
             return result
@@ -155,6 +157,8 @@ class Database:
             start: int | float = time.perf_counter()
             cur: aiosqlite.Cursor = await self.conn.execute(sql, params)
             result: Iterable[aiosqlite.Row] = await cur.fetchall()
+            if self._txn_depth == 0:
+                await self.conn.commit()
             elapsed: int | float = time.perf_counter() - start
             log.debug("Query executed.", extra={"sql": " ".join(sql.split()), "params": params, "exec_time": elapsed, "in_transaction": self._txn_depth > 0})
             return result
