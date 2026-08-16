@@ -119,12 +119,22 @@ async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest) -> Asy
     backend.make_member(cast(discord.User, bot.user), devserver)
     backend.make_member(cast(discord.User, bot.user), instserver)
 
+    sysserver: discord.Guild = backend.make_guild(name="Systems Server")
+    sysserver_instructor_requests_channel: discord.TextChannel = backend.make_text_channel("bot-cmds", sysserver)
+    sysserver_evaluator_role: discord.Role = backend.make_role("Systems Trainee", sysserver)
+    sysserver_trainee_role: discord.Role = backend.make_role("Trainee Evaluator", sysserver)
+    sysserver_config: dict[str, Any] = {
+        "trainee": sysserver_trainee_role.id,
+        "evaluator": sysserver_evaluator_role.id
+    }
+
     db = database.Database()
     await db.connect(db_path)
 
     query = "UPDATE staff_department SET configuration = jsonb(:config), servers = jsonb(:servers) WHERE key = :key;"
     await db.execute(query, {"key": "dev", "config": json.dumps(devserver_config), "servers": f"[{devserver.id}]"})
     await db.execute(query, {"key": "inst", "config": json.dumps(instserver_config), "servers": f"[{instserver.id}]"})
+    await db.execute(query, {"key": "sys", "config": json.dumps(sysserver_config), "servers": f"[{sysserver.id}]"})
     await bot.setup_hook()
 
     new_department = await db.fetchall("SELECT json(configuration) as configuration, json(servers) as servers, * FROM staff_department;")
