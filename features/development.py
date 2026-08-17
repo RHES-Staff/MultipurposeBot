@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 import database
+import features
 from database.department import set_department_config
 from database.models import Department
 from features.views.leaderboard import LogsEmbed, SingleTesterStatEmbed, TesterStatEmbed
@@ -62,7 +63,7 @@ class Development(commands.Cog):
     async def cog_load(self) -> None:
         """Configure internal variables needed by the cog."""
         devdept: Department | None = await database.department.get_department("dev")
-        if not devdept:
+        if devdept is None:
             raise ValueError("Development Configuration cannot be found.")
         config: dict[str, Any] = devdept.configuration
         self._config: dict[str, Any] = config
@@ -107,9 +108,9 @@ class Development(commands.Cog):
             raise TypeError("Configured Logging Channel Type is not supported")
         self.logging_channel: discord.TextChannel = logging_channel
 
-        for guild in devdept.servers:
-            self.bot.tree.add_command(self.stats, guild=discord.Object(guild))
+        await features.command_load(self, [devdept])
 
+    @features.command_scope(dm=True, department=True)
     @discord.app_commands.command(name="stats", description="Check your Stats for Bug Reports.")
     async def stats(self, interaction: discord.Interaction) -> None:
         """Command Listener for /stats."""

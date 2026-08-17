@@ -13,6 +13,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 import database
+import features
 from database.core import Database
 from database.department import set_department_config, set_department_server
 from database.models import Department, StaffMember
@@ -60,6 +61,7 @@ class System(commands.Cog):
         if evaluator is None:
             raise ValueError("Role from Database not found.")
         self.evaluator: Role = evaluator
+        await features.command_load(self, [sysdept])
 
     @app_commands.command(name="say", description="Say something as the Bot")
     @app_commands.guilds()
@@ -78,8 +80,9 @@ class System(commands.Cog):
 
         await interaction.edit_original_response(content=f"Pong!\n\nRoundtrip: `{roundtrip:.2f}ms`\nWebsocket: `{interaction.client.latency * 1000:.2f}ms`")
 
-    configure = app_commands.Group(name="configure", description="Configure ")
+    configure = app_commands.Group(name="configure", description="Configure ", extras={"scope": {"dm": True, "department": False}})
 
+    @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
     @configure.command(name="server", description="Configure the Servers to register")
     @app_commands.choices(operation=[app_commands.Choice(name="Add", value=1), app_commands.Choice(name="Remove", value=0)])
     async def config_server(self, interaction: discord.Interaction, department: str, server_id: int, operation: app_commands.Choice[int]) -> None:
@@ -95,6 +98,7 @@ class System(commands.Cog):
 
     _KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
+    @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
     @configure.command(name="department", description="Configure the Department Settings")
     async def config_department(self, interaction: discord.Interaction, department: str, key: str, value: str) -> None:
         """Sets a key/value pair in the Department's configuration."""
@@ -116,12 +120,16 @@ class System(commands.Cog):
     @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
     async def reload(self, interaction: discord.Interaction) -> None:
         """Reload commands."""
+        if not await has_staff_admin_perms(discord_id=interaction.user.id):
+            await interaction.response.send_message("You are not permitted.", ephemeral=True)
+            return
+
         await interaction.response.send_message("Refreshing... Reload Discord for commands to be registered.")
         await self.bot.reload_command()
 
-    feedback = app_commands.Group(name="feedback", description="Give feedbacks to System Trainees ")
+    feedback = app_commands.Group(name="feedback", description="Give feedbacks to System Trainees ", extras={"scope": {"dm": False, "department": True}})
 
-    @feedback.command(name="add", description="Add feedback to a Trainee")
+    @feedback.command(name="add", description="Add feedback to a Trainee") 
     async def add_feedback(self, interaction: discord.Interaction, trainee: discord.Member | discord.User) -> None:
         """Adds feedback to a trainee."""
         if isinstance(interaction.user, discord.User) or isinstance(trainee, discord.User):
@@ -140,8 +148,7 @@ class System(commands.Cog):
         await interaction.response.send_modal(feedback)
 
     @feedback.command(name="read", description="Read feedbacks given to you.")
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
-    async def read_feedback(self, interaction: discord.Interaction) -> None:
+    async def read_feedback(self, interaction: discord.Interaction) -> None:  # if there is a way to put this function on dms too, that would be awesome
         """Show the calling staff member all feedback submitted to them.
 
         Args:

@@ -190,7 +190,7 @@ class MultipurposeBot(commands.Bot):
         # load all discord handlers automatically
         cogs_dir: str = os.path.join(os.path.dirname(__file__), "features")
         for filename in os.listdir(cogs_dir):
-            if not filename.endswith(".py"):
+            if not filename.endswith(".py") or filename == "__init__.py":
                 continue
             await self.load_extension(f"features.{filename[:-3]}")
             log.debug(f"Loaded Feature: {filename}")
