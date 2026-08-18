@@ -103,7 +103,7 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
     if user is None:
         raise HTTPException(403, "Not allowed to access.")
 
-    resp = RedirectResponse("/")
+    resp = RedirectResponse("https://www.hes.systems/staffpanel")
     set_auth_cookies(resp, tokens, user)
     resp.delete_cookie("oauth_state")
     return resp
