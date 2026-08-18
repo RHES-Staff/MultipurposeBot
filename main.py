@@ -211,7 +211,8 @@ def init_api() -> FastAPI:
     origins: list[str] = [
         "http://localhost:5173",  # for dev,
         "https://staffpanelicious.bonnybonnybonaktan.xyz",
-        "https://staff.hes.systems"
+        "https://www.hes.systems",
+        "https://hes.systems"
     ]
 
     app.add_middleware(
