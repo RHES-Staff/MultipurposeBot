@@ -209,7 +209,9 @@ def init_api() -> FastAPI:
     app = FastAPI()
     api_router = APIRouter()
     origins: list[str] = [
-        "http://localhost:5173",  # for dev
+        "http://localhost:5173",  # for dev,
+        "https://staffpanelicious.bonnybonnybonaktan.xyz",
+        "https://staff.hes.systems"
     ]
 
     app.add_middleware(
