@@ -16,7 +16,7 @@ load_dotenv()
 CLIENT_ID: str = os.environ["DISCORD_CLIENT_ID"]
 CLIENT_SECRET: str = os.environ["DISCORD_CLIENT_SECRET"]
 serializer = URLSafeSerializer(os.environ["SECRET_KEY"])
-DEV_FLAG: bool = os.environ["DISCORD_CLIENT_SECRET"] == "True"
+DEV_FLAG: bool = os.environ["DEV"] == "True"
 
 ACCESS_COOKIE = "access_cookie"
 SESSION_COOKIE = "session_cookie"
