@@ -48,7 +48,7 @@ def set_auth_cookies(resp: Response, tokens: dict, staff: StaffMember) -> None:
     access_max_age: int = tokens.get("expires_in", 3600)
 
     resp.set_cookie(
-        ACCESS_COOKIE, tokens["access_token"], max_age=access_max_age, httponly=True, secure=DEV_FLAG != False, samesite="none" if DEV_FLAG else "lax", path="/"
+        ACCESS_COOKIE, tokens["access_token"], max_age=access_max_age, httponly=True, secure=DEV_FLAG == False, samesite="lax" if DEV_FLAG else "none", path="/"
     )
     resp.set_cookie(
         REFRESH_COOKIE,
