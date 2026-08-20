@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Self
@@ -23,6 +24,7 @@ class Database:
 
     instance = None
     _path: str = "app.db"
+    _RETURNING_PATTERN: re.Pattern[str] = re.compile(r"\bRETURNING\b", re.IGNORECASE)
 
     def __new__(cls) -> Self:
         """Get the Singleton Instance of Database."""
@@ -120,7 +122,14 @@ class Database:
                 self._release()
 
     async def execute(self, sql: str, params: tuple[str, ...] | dict[str, Any] = ()) -> aiosqlite.Cursor:
-        """Execute the given query."""
+        """Execute the given query.
+
+        Raises:
+            ValueError: The SQL has a RETURNING clause. Commit runs before rows are read, so this fails or drops the write. Use `fetchone` or `fetchall` instead.
+        """
+        if self._RETURNING_PATTERN.search(sql):
+            raise ValueError("execute() does not support RETURNING clauses; use fetchone() or fetchall() instead.")
+
         acquired: bool = await self._acquire()
         try:
             start: int | float = time.perf_counter()

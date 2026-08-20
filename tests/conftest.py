@@ -57,9 +57,9 @@ def db_path(request: pytest.FixtureRequest) -> str:
     Returns:
         The on-disk database path for this test, or ':memory:'.
     """
-    base: str = request.config.getoption("--db-debug")
-    if base == ":memory:": 
-        return base
+    base: str | None = request.config.getoption("--db-debug")
+    if base is None: 
+        return ":memory:"
 
     safe_name: str = _UNSAFE_NAME_CHARS.sub("_", request.node.name)
     root, ext = os.path.splitext(base)
@@ -68,7 +68,7 @@ def db_path(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture
-async def db() -> AsyncGenerator[Database, None]:
+async def db(db_path: str) -> AsyncGenerator[Database, None]:
     """Provide a connected database with a test table.
 
     Rationale:
@@ -78,7 +78,7 @@ async def db() -> AsyncGenerator[Database, None]:
         Database: A connected database instance initialized with a test table.
     """
     db_instance = Database()
-    await db_instance.connect(":memory:")
+    await db_instance.connect(db_path)
     await db_instance.execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)")
 
     yield db_instance

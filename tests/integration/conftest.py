@@ -79,43 +79,34 @@ async def _teardown_bot(bot: main.MultipurposeBot, request: pytest.FixtureReques
         )
 
 
-@pytest_asyncio.fixture
-async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest, db_path: str) -> AsyncGenerator:
-    """Set up a bare Bot instance for testing, with no guilds seeded.
+def fake_content_type_setter(self, value) -> None:  # noqa
+    """Mocker that ignores content_type d.py assigns to a File."""
 
-    Connects the database, applies the standard Discord API mocks, boots the bot's internal dpytest hook, and loads cogs/departments via `setup_hook`.
-    Cog-specific fixtures should build on this to seed guilds, roles, members, and department configuration.
+
+async def _teardown_bot(bot: main.MultipurposeBot, request: pytest.FixtureRequest) -> None:
+    """Tear down a bot fixture after a test finishes.
+
+    Removes all loaded cogs, closes the database, drains the dpytest message queue, and resets cog-level singletons.
 
     Args:
-        mocker: The pytest-mock fixture used to patch Discord API calls.
-        request: The pytest request object for the current test.
-        db_path: The database path to connect to
-
-    Yields:
-        main.MultipurposeBot: The initialized bot instance.
+        bot: The bot instance to tear down.
+        request: The pytest request object for the current test, used for
+            outcome logging.
     """
-    log.info("Starting up a Test.", extra={"test": request.node.name})
-
-    db = database.Database()
-    await db.connect(db_path)
-
-    bot = main.MultipurposeBot()
-    mocker.patch.object(bot.tree, "sync", new_callable=AsyncMock)
-    bot.fetch_user = AsyncMock(side_effect=lambda uid: bot.get_user(uid))
-    bot.fetch_guild = AsyncMock(side_effect=lambda uid: bot.get_guild(uid))
-    mocker.patch.object(bot, "fetch_channel", side_effect=lambda uid: bot.get_channel(uid))
-    mocker.patch.object(discord.Guild, "fetch_member", fake_fetch_member)
-    mocker.patch.object(discord.Guild, "fetch_role", fake_fetch_roles)
-    mocker.patch.object(discord.abc.Messageable, "fetch_message", AsyncMock(side_effect=lambda uid: discord.utils.get(bot.cached_messages, id=uid)))
-    mocker.patch.object(discord.Attachment, "content_type", property(fake_content_type_getter, fake_content_type_setter))
-    await bot._async_setup_hook()
-    dpytest.configure(bot, guilds=0)
-
-    await bot.setup_hook()
-
-    yield bot
-
-    await _teardown_bot(bot, request)
+    for cog_name in list(bot.cogs.keys()):
+        await bot.remove_cog(cog_name)
+    await database.Database().close()
+    await dpytest.empty_queue()
+    Development.instance = None
+    result: Any | None = getattr(request.node, "rep_call", None)
+    if result:
+        log.info(
+            "Test finished.",
+            extra={
+                "test": request.node.name,
+                "outcome": result.outcome,  # 'passed', 'failed', 'skipped'
+            },
+        )
 
 
 async def _set_department(db: database.Database, key: str, *, config: dict[str, Any], servers: list[int]) -> None:
@@ -131,23 +122,19 @@ async def _set_department(db: database.Database, key: str, *, config: dict[str, 
     await db.execute(query, {"key": key, "config": json.dumps(config), "servers": json.dumps(servers)})
 
 
-@pytest_asyncio.fixture
-async def dev_guild_test(bot_test: main.MultipurposeBot, mocker: MockerFixture) -> AsyncGenerator[dict[str, Any]]:
-    """Seed a Development-department guild on top of a bare bot fixture.
+async def _seed_dev_guild(bot: main.MultipurposeBot, db: database.Database) -> dict[str, Any]:
+    """Seed the Development-department guild, roles, members, and DB config.
 
-    Builds the "Development Server" with its bug-report/leaderboard/logs channels, developer/head-tester/tester roles, and matching members,
-    then writes the resulting configuration to the `dev` department and reloads the bot so the Development cog picks it up.
+    Builds the "Development Server" with its bug-report/leaderboard/logs channels, developer/head-tester/tester roles, and matching
+    members, then writes the resulting configuration to the `dev` department.
 
     Args:
-        bot_test: The bare bot fixture to seed a guild onto.
-        mocker: The pytest-mock fixture, forwarded for tests that need it.
+        bot: The bot instance to attach the seeded guild's bot member to.
+        db: The connected database instance to write the department config to.
 
-    Yields:
-        dict[str, Any]: Guild info keyed by `"dev"` (server/roles/users/channels/config)
-            and `"none"` (a user with no department membership).
+    Returns:
+        dict[str, Any]: Seeded guild info (server, roles, users, channels, config, none_user).
     """
-    bot: main.MultipurposeBot = bot_test
-
     devserver: discord.Guild = backend.make_guild(name="Development Server")
     devserver_channels: dict[str, discord.TextChannel] = {}
     for name in ("bug-reports", "leaderboards", "logs"):
@@ -177,47 +164,93 @@ async def dev_guild_test(bot_test: main.MultipurposeBot, mocker: MockerFixture) 
     tester: discord.Member = backend.make_member(user_c, devserver, roles=[devserver_tester_role])
     backend.make_member(cast(discord.User, bot.user), devserver)
 
-    db = database.Database()
     await _set_department(db, "dev", config=devserver_config, servers=[devserver.id])
-    await bot.setup_hook()
 
     department = await db.fetchone("SELECT json(servers) as servers FROM staff_department WHERE key = 'dev';")
     assert department is not None, "Expected the 'dev' department row to exist after seeding."
     assert json.loads(department["servers"])[0] == devserver.id, "Expected the seeded devserver ID to be stored on the 'dev' department."
 
-    await bot.cached_fetch_guild(devserver.id)
-    yield {
-        "dev": {
-            "server": devserver,
-            "roles": {"developer": devserver_dev_role, "head_tester": devserver_head_tester_role, "tester": devserver_tester_role},
-            "users": {"developer": developer, "head_tester": head_tester, "tester": tester},
-            "channels": devserver_channels,
-            "config": devserver_config,
-        },
-        "none": {"users": {"none1": user_d}},
-        "bot": bot
+    return {
+        "server": devserver,
+        "roles": {"developer": devserver_dev_role, "head_tester": devserver_head_tester_role, "tester": devserver_tester_role},
+        "users": {"developer": developer, "head_tester": head_tester, "tester": tester},
+        "channels": devserver_channels,
+        "config": devserver_config,
+        "none_user": user_d,
     }
 
 
-@pytest_asyncio.fixture
-async def system_guild_test(bot_test: main.MultipurposeBot) -> AsyncGenerator[dict[str, Any]]:
-    """Seed Systems-department configuration on top of a bare bot fixture.
+async def _seed_system_department(db: database.Database) -> dict[str, Any]:
+    """Seed Systems-department configuration.
 
-    Currently registers no guild or members, since the System cog's commands don't require them.
-    Reserved for future scaffolding once Systems-cog tests need role/member context.
+    Currently registers no guild or members, since the System cog's commands don't require them. Reserved for future scaffolding
+    once Systems-cog tests need role/member context.
 
     Args:
-        bot_test: The bare bot fixture to configure.
+        db: The connected database instance to write the department config to.
+
+    Returns:
+        dict[str, Any]: Seeded Systems department info (currently just the empty config).
+    """
+    sysserver: discord.Guild = backend.make_guild(name="Development Server")
+    sysserver_evaluator_role: discord.Role = backend.make_role("Evaluator", sysserver)
+    sysserver_trainee_role: discord.Role = backend.make_role("Trainee", sysserver)
+    sys_config: dict[str, Any] = {"evaluator": sysserver_evaluator_role.id, "trainee": sysserver_trainee_role.id}
+    await _set_department(db, "sys", config=sys_config, servers=[sysserver.id])
+    return {"config": sys_config}
+
+
+@pytest_asyncio.fixture
+async def bot_test(mocker: MockerFixture, request: pytest.FixtureRequest, db_path: str) -> AsyncGenerator[dict[str, Any]]:
+    """Set up a fully-seeded Bot instance for integration testing.
+
+    Connects the database, applies the standard Discord API mocks, boots the bot's internal dpytest hook, seeds the Development
+    and Systems department guilds/config, then loads cogs/departments in a single `setup_hook` call.
+
+    Args:
+        mocker: The pytest-mock fixture used to patch Discord API calls.
+        request: The pytest request object for the current test.
+        db_path: The database path to connect to.
 
     Yields:
-        dict[str, Any]: Guild info keyed by `"sys"` (currently empty config).
+        dict[str, Any]: Combined test context keyed by `"bot"`, `"dev"`, `"sys"`, and `"none"`.
     """
-    bot: main.MultipurposeBot = bot_test
-
-    sys_config: dict[str, Any] = {}
+    log.info("Starting up a Test.", extra={"test": request.node.name})
 
     db = database.Database()
-    await _set_department(db, "sys", config=sys_config, servers=[])
+    await db.connect(db_path)
+
+    bot = main.MultipurposeBot()
+    mocker.patch.object(bot.tree, "sync", new_callable=AsyncMock)
+    bot.fetch_user = AsyncMock(side_effect=lambda uid: bot.get_user(uid))
+    bot.fetch_guild = AsyncMock(side_effect=lambda uid: bot.get_guild(uid))
+    mocker.patch.object(bot, "fetch_channel", side_effect=lambda uid: bot.get_channel(uid))
+    mocker.patch.object(discord.Guild, "fetch_member", fake_fetch_member)
+    mocker.patch.object(discord.Guild, "fetch_role", fake_fetch_roles)
+    mocker.patch.object(discord.abc.Messageable, "fetch_message", AsyncMock(side_effect=lambda uid: discord.utils.get(bot.cached_messages, id=uid)))
+    mocker.patch.object(discord.Attachment, "content_type", property(fake_content_type_getter, fake_content_type_setter))
+    await bot._async_setup_hook()
+    dpytest.configure(bot, guilds=0)
+
+    dev_info: dict[str, Any] = await _seed_dev_guild(bot, db)
+    sys_info: dict[str, Any] = await _seed_system_department(db)
+
+    # single setup_hook call: loads bot.departments from the now fully-seeded DB, then loads/syncs cogs against it
     await bot.setup_hook()
 
-    yield {"sys": {"config": sys_config}}
+    await bot.cached_fetch_guild(dev_info["server"].id)
+
+    yield {
+        "bot": bot,
+        "dev": {
+            "server": dev_info["server"],
+            "roles": dev_info["roles"],
+            "users": dev_info["users"],
+            "channels": dev_info["channels"],
+            "config": dev_info["config"],
+        },
+        "none": {"users": {"none1": dev_info["none_user"]}},
+        "sys": sys_info,
+    }
+
+    await _teardown_bot(bot, request)

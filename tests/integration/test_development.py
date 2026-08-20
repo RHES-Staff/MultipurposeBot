@@ -1,0 +1,232 @@
+"""Testing bot functionalities."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections import Counter
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar, cast
+
+import discord
+import discord.ext.test as dpytest
+import pytest
+
+import database
+from features.development import Development
+from main import MultipurposeBot
+
+if TYPE_CHECKING:
+    from sqlite3 import Row
+
+    from _pytest.mark.structures import ParameterSet
+
+
+log: logging.Logger = logging.getLogger(f"App.Test.{__name__}")
+
+
+def supposed_reactions(message: discord.Message, check: int = 1, x: int = 1) -> bool:
+    """Compare a message's ✅/❌ reaction counts against expected values."""
+    reactions: Counter[str] = Counter(str(r.emoji) for r in message.reactions for _ in range(r.count))
+    return reactions["✅"] == check and reactions["❌"] == x
+
+
+async def sanity_check_bugreport(db: database.Database, bugreport: discord.Message) -> Row:
+    """Check a report's expected behavior."""
+    await asyncio.sleep(0.1)
+    assert len(bugreport.reactions) == 2, "Bot did not react on a Bug Report w/o media"
+    row: Row | None = await db.fetchone(
+        "SELECT s.discord_id, r.content, r.decision FROM department_tester_reports r LEFT JOIN staff_staff s ON s.staff_id = r.author WHERE id=:id",
+        {"id": bugreport.id},
+    )
+    assert row, "Did not register the bug in the database."
+    assert row["discord_id"] == bugreport.author.id, "Reporting staff mismatch."
+    assert row["content"] == bugreport.content, "Bug Report content mismatch."
+    return row
+
+
+async def check_tester_points(devinstance: Development, member: discord.Member, accepted: int, rejected: int, pending: int) -> Row:
+    """Check a tester's stored points against what is stored in the database."""
+    assert devinstance
+    stats: Row | None = await devinstance.get_tester_stats(member)
+    assert stats, "No Tester Stats found."
+    assert stats["accepted"] == accepted, "Recorded Accepted bugs are not what is expected."
+    assert stats["rejected"] == rejected, "Recorded Rejected bugs are not what is expected."
+    assert stats["pending"] == pending, "Recorded Pending bugs are not what is expected."
+    return stats
+
+
+async def check_developer_points(devinstance: Development, member: discord.Member, accepted: int, rejected: int) -> Row:
+    """Check a developers's stored points against what is stored in the database."""
+    stats: Row | None = await devinstance.get_developer_stats(member)
+    assert stats, "No Developer Stats found."
+    assert stats["accepted"] == accepted, "Recorded Accepted bugs are not what is expected."
+    assert stats["rejected"] == rejected, "Recorded Rejected bugs are not what is expected."
+    return stats
+
+
+@dataclass
+class BugReport:
+    """A Report Case."""
+
+    content: str
+    channel_key: str
+    author_key: str
+    attachments: list[str]
+    valid: bool
+
+
+@dataclass
+class RegisteredReport:
+    """A Report Case."""
+
+    bot: MultipurposeBot
+    dev: Development
+    message: discord.Message
+    author: discord.Member
+    guild_info: dict[str, Any]
+    case: BugReport
+
+
+@dataclass
+class DecidedReport:
+    """A Report Case."""
+
+    should_decide: bool
+    still_present: discord.Message | None
+    decider: discord.Member
+    author: discord.Member
+    devinstance: Development
+    emoji: str
+    case: BugReport
+
+
+class TestBugReportBehavior:
+    """Test for the expected Behavior of Development Cog when a bug report is posted."""
+
+    PHOTO = "tests/media/photo.png"
+    VIDEO = "tests/media/video.mp4"
+    FILE = "tests/media/file.txt"
+
+    @pytest.fixture
+    async def dev_ctx(self, bot_test: dict[str, Any]) -> tuple[MultipurposeBot, Development, dict[str, Any]]:
+        """Setup Bug Report Behavior Testing."""
+        guild_info: dict[str, Any] = bot_test
+        bot: MultipurposeBot = guild_info["bot"]
+        devinstance: Development | None = cast(Development | None, bot.get_cog("Development"))
+        assert devinstance, "Development Cog did not load."
+        return bot, devinstance, guild_info
+
+    REGISTER_CASES: ClassVar[list[ParameterSet]] = [
+        pytest.param(("Nomedia Bug Report", "bug-reports", "tester", [], False), id="no-media"),
+        pytest.param(("Invalid Media Bug Report", "bug-reports", "tester", [FILE], False), id="invalid-media-type"),
+        pytest.param(("Wrong Channel Bug Report", "leaderboards", "tester", [PHOTO], False), id="wrong-channel"),
+        pytest.param(("Photo Bug Report", "bug-reports", "tester", [PHOTO], True), id="photo"),
+        pytest.param(("Video Bug Report", "bug-reports", "head_tester", [VIDEO], True), id="video"),
+        pytest.param(("Mixed Media Bug Report", "bug-reports", "tester", [PHOTO, VIDEO, FILE], True), id="mixed-media"),
+    ]
+
+    @pytest.fixture(params=REGISTER_CASES)
+    async def registered_report(
+        self, dev_ctx: tuple[MultipurposeBot, Development, dict[str, Any]], request: pytest.FixtureRequest
+    ) -> tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]]:
+        """Stage 1: post a bug report."""
+        content, channel_key, author_key, attachments, _ = cast(tuple[str, str, str, list[str], bool], request.param)
+        bot, devinstance, guild_info = dev_ctx
+
+        channel: discord.TextChannel = guild_info["dev"]["channels"][channel_key]
+        author: discord.Member = guild_info["dev"]["users"][author_key]
+
+        message: discord.Message = await dpytest.message(content, channel, author, attachments=attachments)
+
+        return bot, devinstance, message, request, author, guild_info
+
+    async def test_register_reports(
+        self,
+        registered_report: tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+    ) -> None:
+        """Fixture performs and asserts the register_reports pass/fail behavior."""
+        _, devinstance, message, request, author, _ = registered_report
+        _, _, _, _, valid = cast(tuple[str, str, str, list[str], bool], request.param)
+        db = database.Database()
+
+        if valid:
+            assert supposed_reactions(message, 1, 1), "Bot did not react on a valid report"
+            await sanity_check_bugreport(db, message)
+            await check_tester_points(devinstance, author, accepted=0, rejected=0, pending=1)
+        else:
+            assert supposed_reactions(message, 0, 0), "Bot reacted on an invalid report"
+        assert message is not None
+
+    DECIDER_ROLES_WITH_PERMISSION: ClassVar[set[str]] = {"head_tester", "developer"}
+
+    DECIDE_CASES: ClassVar[list[ParameterSet]] = [
+        pytest.param(("tester", "✅"), id="tester-noperms-accept"),
+        pytest.param(("tester", "❌"), id="tester-noperms-reject"),
+        pytest.param(("tester", "❓"), id="tester-noperms-invalid"),
+        pytest.param(("developer", "✅"), id="developer-accept"),
+        pytest.param(("developer", "❌"), id="developer-reject"),
+        pytest.param(("developer", "❓"), id="developer-invalid"),
+        pytest.param(("head_tester", "✅"), id="headtester-accept"),
+        pytest.param(("head_tester", "❌"), id="headtester-reject"),
+        pytest.param(("head_tester", "❓"), id="headtester-invalid"),
+    ]
+
+    @pytest.fixture(params=DECIDE_CASES)
+    async def decided_report(
+        self,
+        registered_report: tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+        request: pytest.FixtureRequest,
+    ) -> tuple[
+        tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+        pytest.FixtureRequest,
+        bool,
+        discord.Message,
+    ]:
+        """Stage 2: react on whatever register_reports produced, assert decide_reports behavior."""
+        bot, _, message, registered_request, _, guild_info = registered_report
+        _, _, _, _, valid = cast(tuple[str, str, str, list[str], bool], registered_request.param)
+        decider_key, emoji = cast(tuple[str, str], request.param)
+
+        channel: discord.Message = message.channel
+
+        decider: discord.Member = guild_info["dev"]["users"][decider_key]
+
+        has_permission: bool = decider_key in self.DECIDER_ROLES_WITH_PERMISSION
+        valid_emoji: bool = emoji in ("✅", "❌")
+        should_decide: bool = valid and has_permission and valid_emoji
+
+        await dpytest.add_reaction(decider, message, emoji)
+        await asyncio.sleep(0.1)
+
+        still_present: discord.Message | None = await bot.cached_fetch_message(channel, message.id)
+
+        return registered_report, request, should_decide, still_present
+
+    async def test_decide_reports(
+        self,
+        decided_report: tuple[
+            tuple[MultipurposeBot, Development, discord.Message, pytest.FixtureRequest, discord.Member, dict[str, Any]],
+            pytest.FixtureRequest,
+            bool,
+            discord.Message,
+        ],
+    ) -> None:
+        """Fixture performs and asserts the decide_reports pass/fail behavior."""
+        registered_report, request, should_decide, still_present = decided_report
+        _, devinstance, _, registered_request, author, guild_info = registered_report
+        _, _, _, _, valid = cast(tuple[str, str, str, list[str], bool], registered_request.param)
+        decider_key, emoji = cast(tuple[str, str], request.param)
+        decider: discord.Member = guild_info["dev"]["users"][decider_key]
+        if should_decide:
+            assert not still_present, "Bug Report was not deleted after a valid decision."
+            if emoji == "✅":
+                await check_developer_points(devinstance, decider, 1, 0)
+                await check_tester_points(devinstance, author, 1, 0, 0)
+            else:
+                await check_developer_points(devinstance, decider, 0, 1)
+                await check_tester_points(devinstance, author, 0, 1, 0)
+        else:
+            assert still_present, "Bug Report was deleted despite an invalid decision."
+            expected_pending: int = 1 if valid else 0
+            await check_tester_points(devinstance, author, 0, 0, expected_pending)
