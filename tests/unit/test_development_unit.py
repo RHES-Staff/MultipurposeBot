@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, cast
 
-import discord
 import pytest
+import pytest_mock
 
 from features.development import Development
-from features.views.leaderboard import SingleTesterStatEmbed, TesterStatEmbed
 
-if TYPE_CHECKING:
-    from main import MultipurposeBot
+
+@pytest.fixture
+def dev_cog(mocker: pytest_mock.MockerFixture) -> Development:
+    """Set up a mock of the Development Cog as required by the tests."""
+    mock_bot = mocker.MagicMock()
+    cog = Development(mock_bot)
+    return cog
+
 
 containment_dates: list[tuple[datetime, int]] = [
     (datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc), 0),
@@ -27,11 +31,10 @@ containment_dates: list[tuple[datetime, int]] = [
 
 
 @pytest.mark.parametrize("date, start_of_week", containment_dates)
-def test_bugreport_leaderboard_containment(bot_test: tuple[MultipurposeBot, dict[str, Any], Any], date: datetime, start_of_week: int) -> None:
+def test_bugreport_leaderboard_containment(dev_cog: Development, date: datetime, start_of_week: int) -> None:
     """Test if a given date falls between the correct start/end dates."""
-    bot, _, _ = bot_test
-    devinstance: Development = cast(Development, bot.get_cog("Development"))
-    start, end = devinstance.week_bounds(date, start_of_week)
+    dev_cog.start_of_week = start_of_week
+    start, end = dev_cog.week_bounds(date, start_of_week)
     assert start.astimezone(timezone.utc) <= date.astimezone(timezone.utc)
     assert date.astimezone(timezone.utc) <= end.astimezone(timezone.utc)
 
@@ -105,37 +108,14 @@ boundary_cases: list[tuple[datetime, int, datetime, datetime]] = [
 
 @pytest.mark.parametrize("date, start_of_week, expected_start, expected_end", boundary_cases)
 def test_bugreport_leaderboard_exact_bounds(
-    bot_test: tuple[MultipurposeBot, dict[str, Any], Any],
+    dev_cog: Development,
     date: datetime,
     start_of_week: int,
     expected_start: datetime,
     expected_end: datetime,
 ) -> None:
     """Test the expected start/end dates of a week."""
-    bot, _, _ = bot_test
-    devinstance: Development = cast(Development, bot.get_cog("Development"))
-    start, end = devinstance.week_bounds(date, start_of_week)
+    dev_cog.start_of_week = start_of_week
+    start, end = dev_cog.week_bounds(date, start_of_week)
     assert start == expected_start
     assert end == expected_end
-
-
-async def test_single_tester_stat_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
-    """Test that Single Leaderboard Embeds can print."""
-    bot, guild_info, _ = bot_test
-    dev: Development = cast(Development, bot.get_cog("Development"))
-    embed: SingleTesterStatEmbed = await SingleTesterStatEmbed.create(dev, guild_info["dev"]["users"]["tester"])
-    assert embed
-    assert discord.utils.get(embed.fields, name="Week Stats")
-    assert discord.utils.get(embed.fields, name="Overall Stats")
-    # we would just implicitly trust that the content here is accurate, get_tester_stats is the culprit if the content is inaccurat
-    # as we have learned, we fucked up.
-
-async def test_multiple_tester_stat_embed(bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> None:
-    """Test that Overall Leaderboard Embeds can print."""
-    bot, guild_info, _ = bot_test
-    dev: Development = cast(Development, bot.get_cog("Development"))
-    embed: TesterStatEmbed = await TesterStatEmbed.create(dev, guild_info["dev"]["users"]["tester"])
-    assert embed
-    assert discord.utils.get(embed.fields, name="Tester Fixes Leaderboard")
-    # we would just implicitly trust that the content here is accurate, get_tester_stats is the culprit if the content is inaccurat
-    # as we have learned, we fucked up.

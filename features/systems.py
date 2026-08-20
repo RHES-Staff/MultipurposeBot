@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import discord
 from discord import app_commands
@@ -17,7 +18,9 @@ import features
 from database.core import Database
 from database.department import set_department_config, set_department_server
 from database.models import Department, StaffMember
+from database.models import Department, StaffMember
 from database.staff import has_staff_admin_perms
+from features.views.feedback import FeedbackEmbed, FeedbackModal
 from features.views.feedback import FeedbackEmbed, FeedbackModal
 
 if TYPE_CHECKING:
@@ -27,14 +30,23 @@ if TYPE_CHECKING:
     from discord.guild import Guild
     from discord.role import Role
 
+    from collections.abc import Iterable
+
+    from aiosqlite import Row
+    from discord.guild import Guild
+    from discord.role import Role
+
     from main import MultipurposeBot
 
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 log: logging.Logger = logging.getLogger(f"App.{__name__}")
 load_dotenv()
 
 
 class System(commands.Cog):
     """Systems Cog: Commands are for administration of the whole system."""
+
+    instance: Self | None = None
 
     instance: Self | None = None
 

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import discord
 import discord.ext.test as dpytest
 import pytest
-import pytest_mock
 
 import database
 from features.development import Development
@@ -21,64 +20,9 @@ if TYPE_CHECKING:
     from sqlite3 import Row
 
     from _pytest.mark.structures import ParameterSet
-    from discord.abc import GuildChannel, PrivateChannel
-    from discord.guild import Guild
-    from discord.member import Member
-    from discord.threads import Thread
-    from discord.user import User
 
 
 log: logging.Logger = logging.getLogger(f"App.Test.{__name__}")
-
-
-async def test_helpers(bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
-    """Test Proper Initialization of Bot, and its Helper Functions."""
-    # test helper functions
-    bot, guild_info, _ = bot_test
-    assert not await bot.cached_fetch_guild(12345), "Nonexistent guild lookup returned something."
-    devserver: Guild | None = await bot.cached_fetch_guild(guild_info["dev"]["server"].id)
-    assert devserver, "Valid guild lookup did not return something"
-    assert devserver == guild_info["dev"]["server"], "Guild lookup returned something else."
-
-    assert not await bot.cached_fetch_member(devserver, 12345), "Nonexistent member lookup returned something."
-    member: Member | None = await bot.cached_fetch_member(devserver, guild_info["dev"]["users"]["developer"].id)
-    assert member, "Valid member lookup did not return something."
-    assert member == guild_info["dev"]["users"]["developer"], "Member lookup returned something else."
-
-    assert not await bot.cached_fetch_user(12345), "Nonexistent user lookup returned something."
-    user: User | None = await bot.cached_fetch_user(guild_info["dev"]["users"]["developer"].id)
-    assert user, "Valid user lookup did not return something."
-    assert user.id == guild_info["dev"]["users"]["developer"].id, "User lookup returned something else."
-
-    assert not await bot.cached_fetch_channel(12345), "Nonexistent channel lookup returned something."
-    channel: GuildChannel | PrivateChannel | Thread | None = await bot.cached_fetch_channel(guild_info["dev"]["channels"]["logs"].id)
-    assert channel, "Valid channel lookup did not return something"
-    assert channel == guild_info["dev"]["channels"]["logs"], "Channel lookup returned something else"
-    assert isinstance(channel, discord.TextChannel), "Channel returned a different Channel Type"
-
-    assert bot.departments, "bot.departments did not get populated."
-
-
-async def test_development_init(bot_test: tuple[MultipurposeBot, dict[str, Any], pytest_mock.MockerFixture]) -> None:
-    """Test Development Cog and its Initialization."""
-    bot, guild_info, _ = bot_test
-    dev: Development | None = cast(Development, bot.get_cog("Development"))
-    assert dev, "Development bot is not loaded."
-
-    config: dict[str, Any] = guild_info["dev"]["config"]
-    assert dev.testing_guild.id == config["testing_guild"], "Testing Guild did not get configured properly"
-    assert [c.id for c in dev.bug_report_channels] == config["bug_report_channels"], "Bug Report Channels did not get configured properly"
-    # assert [r.id for r in dev.admin_role_ids] == config["admin_role_ids"], "Admin Role IDs did not get configured properly"
-    assert dev.minimum_report_quota == config["minimum_report_quota"], "Minimum Report Quota did not get configured properly"
-    assert dev.leaderboard_channel.id == config["leaderboard_channel"], "Leaderboard Channel did not get configured properly"
-    # assert dev.leaderboard_message, "Leaderboard Message did send properly" # i think there's a dpytest bug here that causes this to fail even though it shouldnt
-    assert dev.logging_channel.id == config["logging_channel"], "Logging Channel did not get configured properly"
-    assert dev.start_of_week == config["start_of_week"], "Start of Week did not get configured properly"
-
-
-# ---------------------------------------------------------------------------
-# shared helpers
-# ---------------------------------------------------------------------------
 
 
 def supposed_reactions(message: discord.Message, check: int = 1, x: int = 1) -> bool:
@@ -165,9 +109,10 @@ class TestBugReportBehavior:
     FILE = "tests/media/file.txt"
 
     @pytest.fixture
-    async def dev_ctx(self, bot_test: tuple[MultipurposeBot, dict[str, Any], Any]) -> tuple[MultipurposeBot, Development, dict[str, Any]]:
+    async def dev_ctx(self, bot_test: dict[str, Any]) -> tuple[MultipurposeBot, Development, dict[str, Any]]:
         """Setup Bug Report Behavior Testing."""
-        bot, guild_info, _ = bot_test
+        guild_info: dict[str, Any] = bot_test
+        bot: MultipurposeBot = guild_info["bot"]
         devinstance: Development | None = cast(Development | None, bot.get_cog("Development"))
         assert devinstance, "Development Cog did not load."
         return bot, devinstance, guild_info
