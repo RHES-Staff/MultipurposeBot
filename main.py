@@ -209,7 +209,7 @@ def init_api() -> FastAPI:
     app = FastAPI()
     api_router = APIRouter()
     origins: list[str] = [
-        "http://localhost:5173",  # for dev,
+        "http://localhost:5500",  # for dev,
         "https://staffpanelicious.bonnybonnybonaktan.xyz",
         "https://www.hes.systems",
         "https://hes.systems"

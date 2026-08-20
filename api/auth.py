@@ -1,5 +1,6 @@
 """/api/auth/* Handlers."""
 
+import logging
 import os
 import secrets
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from database.models import StaffMember
 from database.staff import get_staff, has_staff_admin_perms
 
 load_dotenv()
+log: logging.Logger = logging.getLogger(f"App.{__name__}")
 router = APIRouter(prefix="/auth")
 
 CLIENT_ID: str = os.environ["DISCORD_CLIENT_ID"]
@@ -25,7 +27,7 @@ serializer = URLSafeSerializer(os.environ["SECRET_KEY"])
 
 
 @router.get("/discord/login")
-def discord_login() -> RedirectResponse:
+def discord_login(request: Request) -> RedirectResponse:
     """Redirect the user to the Discord OAuth2 authorization page.
 
     Generates a secure state token and saves it in an HTTP-only cookie.
@@ -34,18 +36,21 @@ def discord_login() -> RedirectResponse:
     Returns:
         RedirectResponse: A redirect response to Discord with the state cookie set.
     """
-    state = secrets.token_urlsafe(16)
-    signed_state = serializer.dumps(state)
-    params = {
+    state: str = secrets.token_urlsafe(16)
+    signed_state: str = serializer.dumps(state)
+    params: dict[str, str] = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
         "scope": "identify",
         "state": state,
     }
-    url = "https://discord.com/oauth2/authorize?" + httpx.QueryParams(params).__str__()
+    url: str = "https://discord.com/oauth2/authorize?" + httpx.QueryParams(params).__str__()
     resp = RedirectResponse(url)
     resp.set_cookie("oauth_state", signed_state, httponly=True, max_age=600, samesite="lax")
+    referer: str = request.headers.get("referer") or str(request.base_url)
+    signed_referer = serializer.dumps(referer)
+    resp.set_cookie("oauth_referer", signed_referer, httponly=True, max_age=600, samesite="lax")
     return resp
 
 
@@ -77,6 +82,14 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
     if state != expected_state:
         raise HTTPException(400, "State mismatch")
 
+    oauth_referer: str | None = request.cookies.get("oauth_referer")
+    if not oauth_referer:
+        raise HTTPException(400, "Missing referer.")
+    try:
+        oauth_referer: str = serializer.loads(oauth_referer)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(400, "Bad state")
+
     async with httpx.AsyncClient() as client:
         token_resp: httpx.Response = await client.post(
             "https://discord.com/api/oauth2/token",
@@ -103,7 +116,9 @@ async def discord_callback(request: Request, code: str, state: str) -> RedirectR
     if user is None:
         raise HTTPException(403, "Not allowed to access.")
 
-    resp = RedirectResponse("https://www.hes.systems/staffpanel")
+    if oauth_referer == "https://www.hes.systems":
+        oauth_referer += "/staffpanel"
+    resp = RedirectResponse(oauth_referer)
     set_auth_cookies(resp, tokens, user)
     resp.delete_cookie("oauth_state")
     return resp
@@ -137,11 +152,12 @@ async def check_if_authed(user: Annotated[StaffMember, Depends(get_current_user)
     return AuthResponse(discord_id=str(user.discord_id), name=user.name, role="admin" if await has_staff_admin_perms(staff_id=user.staff_id) else "user")
 
 
-@router.post("/logout", status_code=204)
-async def logout(response: Response) -> None:
+@router.post("/logout", status_code=200)
+async def logout(response: Response) -> dict[str, str]:
     """Log the current user out by clearing authentication cookies.
 
     Args:
         response: The outgoing HTTP response object.
     """
     clear_auth_cookies(response)
+    return {"status": "ok"}

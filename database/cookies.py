@@ -16,6 +16,7 @@ load_dotenv()
 CLIENT_ID: str = os.environ["DISCORD_CLIENT_ID"]
 CLIENT_SECRET: str = os.environ["DISCORD_CLIENT_SECRET"]
 serializer = URLSafeSerializer(os.environ["SECRET_KEY"])
+DEV_FLAG: bool = os.environ["DISCORD_CLIENT_SECRET"] == "True"
 
 ACCESS_COOKIE = "access_cookie"
 SESSION_COOKIE = "session_cookie"
@@ -46,9 +47,27 @@ def set_auth_cookies(resp: Response, tokens: dict, staff: StaffMember) -> None:
     """
     access_max_age: int = tokens.get("expires_in", 3600)
 
-    resp.set_cookie(ACCESS_COOKIE, tokens["access_token"], max_age=access_max_age, httponly=True, secure=True, samesite="lax", path="/")
-    resp.set_cookie(REFRESH_COOKIE, tokens["refresh_token"], max_age=REFRESH_MAX_AGE, httponly=True, secure=True, samesite="lax", path="/")
-    resp.set_cookie(SESSION_COOKIE, create_session_cookie(staff), max_age=REFRESH_MAX_AGE, httponly=True, secure=True, samesite="lax", path="/")
+    resp.set_cookie(
+        ACCESS_COOKIE, tokens["access_token"], max_age=access_max_age, httponly=True, secure=DEV_FLAG != False, samesite="none" if DEV_FLAG else "lax", path="/"
+    )
+    resp.set_cookie(
+        REFRESH_COOKIE,
+        tokens["refresh_token"],
+        max_age=REFRESH_MAX_AGE,
+        httponly=True,
+        secure=DEV_FLAG != False,
+        samesite="none" if DEV_FLAG else "lax",
+        path="/",
+    )
+    resp.set_cookie(
+        SESSION_COOKIE,
+        create_session_cookie(staff),
+        max_age=REFRESH_MAX_AGE,
+        httponly=True,
+        secure=DEV_FLAG != False,
+        samesite="none" if DEV_FLAG else "lax",
+        path="/",
+    )
 
 
 def clear_auth_cookies(resp: Response) -> None:
